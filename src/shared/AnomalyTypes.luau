@@ -33,7 +33,7 @@ local AnomalyTypes: { AnomalyType } = {
 	{
 		Id = "WrongTicket",
 		Name = "Билет из 1986-го",
-		Hint = "Проверь билеты: дата и номер маршрута должны быть сегодняшними.",
+		Hint = "Проверь билеты: маршрут должен быть №13, а год — нынешний.",
 		Detect = "Ticket",
 		CueAttribute = nil, -- сервер подменяет данные в InspectResult
 		Weight = 3,

@@ -122,7 +122,7 @@ ServerStorage
 | `AnomalyEscalated` | `level: number, effect: string` (эффекты из `Config.ESCALATION_EFFECTS`) |
 | `RunEnded` | `summary: {Won: boolean, Tenge: number, Caught: number, Mistakes: number, StopsReached: number}` |
 | `CurrencyChanged` | `tenge: number` — **общий баланс** игрока (не заработок за рейс). Сервер шлёт при входе игрока и при каждом изменении |
-| `Notify` | `text: string, kind: "Info" \| "Warn" \| "Good" \| "Bad"` |
+| `Notify` | `key: string, kind: "Info" \| "Warn" \| "Good" \| "Bad", params: {[string]: string\|number\|boolean}?` — **ключ** строки из `Strings.luau`, клиент переводит (см. ниже) |
 
 ### Поля `RoundState.data` (договорились по PR #2)
 
@@ -158,9 +158,38 @@ ServerStorage
 | `DataService` | `IncrementStat(player, "Runs" \| "Wins" \| "Caught"): boolean` | То же |
 | `DataService` | `GetProfile(player): Profile?` | Копия; `nil`, пока не загружен |
 | `RoleService` | `GetDriver(): Player?`, `AssignRoles(players)`, `AddConductor(player)`, `ClearRoles()` | `nil` = автопилот |
-| `RouteService` | `StartRun()`, `ResetRun()`, `IsFinished(): boolean` | `ResetRun` — только когда в салоне никого |
+| `RouteService` | `StartRun()`, `ResetRun()`, `StopRun()`, `IsFinished(): boolean` | `ResetRun` — только когда в салоне никого; `StopRun` — поражение, плавное торможение |
+| `RouteService` | сигналы `StopChanged(index, name, phase)`, `DoorsChanged(open)` | для серверных сервисов (клиентам уходят ремоуты) |
+| `RoundService` | `GetRiders(): {Player}`, `EndRun(won)` | копия списка игроков рейса |
+| `PassengerService` | `Clear()`, `Eject(id): boolean`, `GetModel(id)`, `GetOnboard()`, `KeepAboard(id)` | `GetOnboard` — копия `[id] = Model` |
+| `AnomalyService` | `OnBoarded(id, model): boolean`, `FinishRun(won)`, `GetHealth()` | `OnBoarded` → `true`, если аномалия (сама не выйдет) |
 | `AnomalyService` | `GetHealth(): number` | Прочность автобуса |
 | `MonetizationService` | `HasVIP(player): boolean`, `ConsumeAmulet(player): boolean` | `ConsumeAmulet` ходит в DataStore — **ждёт**; вызывать один раз при прочности 0 |
+
+## Сообщения `Notify` и локализация (решение по PR #14)
+
+Сервер шлёт **ключ**, а не текст: `Notify:FireClient(player, "notify.returned_to_bus", "Warn")`.
+Клиент переводит через `Strings.notify(key, params)`. Текст без префикса `notify.` клиент показывает как есть
+(временная совместимость — новые сообщения только ключами). Все ключи и их параметры:
+
+| Ключ | Кто шлёт | Параметры |
+|---|---|---|
+| `notify.trip_finished` | RoundService | — |
+| `notify.returned_to_bus` | RoundService | — |
+| `notify.anomaly_ejected` | AnomalyService | `anomalyId` (клиент сам подставит переведённое имя в `{anomaly}`), `reward` |
+| `notify.human_ejected` | AnomalyService | `penalty` |
+| `notify.amulet_saved` | AnomalyService | `player` (DisplayName) |
+| `notify.balance_unavailable`, `notify.balance_restored`, `notify.amulet_added` | DataService / MonetizationService | — |
+
+Новый ключ = строка в `Strings.luau` (CX) + строка в этой таблице (оркестратор).
+
+## Правила аномалий (решения по PR #13)
+
+- **Урон только после полного перегона.** Аномалия, севшая на остановке N, бьёт по автобусу на `Departed`
+  остановки **N+1** и дальше (а не на отъезде от своей же остановки) — иначе у кондукторов нет времени её найти.
+- **Двойник:** высадка **любого** из пары засчитывается как поимка; оставшийся становится обычным пассажиром
+  (снять `TwinOf`, убрать из `truth`, вернуть обычный `exitStop`).
+- **Билет:** правило для игрока — «маршрут №13 и текущий год». Дата сервера может отличаться от даты игрока на день, поэтому день и месяц не важны.
 
 ## Звуки: кто что играет (решение по PR #9/#10)
 
