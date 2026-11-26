@@ -28,6 +28,12 @@ function RoundService:GetRiders(): { Player }
 	return table.clone(riders)
 end
 
+-- Закончить рейс победой или поражением (AnomalyService зовёт при прочности 0). Настоящая функция — в :Start().
+local endRunNow = function(_won: boolean) end
+function RoundService:EndRun(won: boolean)
+	endRunNow(won)
+end
+
 function RoundService:Start()
 	local roles = registry.RoleService
 	local route = registry.RouteService
@@ -73,11 +79,22 @@ function RoundService:Start()
 		roundState:FireAllClients(state, snapshot())
 	end
 
-	local function endRun()
+	local function endRun(won: boolean)
+		if state ~= "Running" then
+			return
+		end
 		state = "Results"
 		broadcast()
-		for _, player in riders do
-			notify:FireClient(player, "Конечная! Рейс окончен", "Good")
+		if not won then
+			route:StopRun() -- поражение посреди перегона: автобус плавно тормозит
+		else
+			for _, player in riders do
+				notify:FireClient(player, "notify.trip_finished", "Good")
+			end
+		end
+		local anomalies = registry.AnomalyService
+		if anomalies then
+			anomalies:FinishRun(won) -- RunEnded с итогами, бонус и статистика
 		end
 		task.delay(Config.RESULTS_SCREEN_TIME, function()
 			roles:ClearRoles()
@@ -125,16 +142,17 @@ function RoundService:Start()
 					character:PivotTo(aisle(slot))
 					body.AssemblyLinearVelocity = root.AssemblyLinearVelocity -- иначе в едущем автобусе сразу снесёт назад
 					if boarded[player] then
-						notify:FireClient(player, "Ты отстал от маршрутки — вернули в салон", "Warn")
+						notify:FireClient(player, "notify.returned_to_bus", "Warn")
 					end
 				end
 				boarded[player] = true
 			end
 		end
 		if route:IsFinished() then
-			endRun()
+			endRun(true) -- доехали до конечной
 		end
 	end
+	endRunNow = endRun
 
 	local function startRun()
 		table.clear(riders)
@@ -215,7 +233,7 @@ function RoundService:Start()
 			broadcast()
 		end
 		if state == "Running" and #riders == 0 then
-			endRun()
+			endRun(false)
 		end
 	end)
 

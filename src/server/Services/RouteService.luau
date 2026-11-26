@@ -42,6 +42,12 @@ local resetRun = function() end
 local isFinished = function(): boolean
 	return false
 end
+local stopRun = function() end
+
+-- Прервать рейс (поражение): автобус плавно тормозит и стоит; дальше — ResetRun.
+function RouteService:StopRun()
+	stopRun()
+end
 
 -- Начать рейс с места, где стоит автобус (после ResetRun — с начала маршрута).
 function RouteService:StartRun()
@@ -330,6 +336,12 @@ function RouteService:Start()
 			end
 		end
 
+		-- Рейс прерван посреди перегона: тормозим плавно, иначе стоящих в салоне швырнёт вперёд.
+		if finished and speed > 0 then
+			speed = math.max(0, speed - Config.BUS_BRAKE * dt)
+			distance += speed * dt
+		end
+
 		-- Скорость по дороге + мягкая поправка к точной позиции; на стоянке держит автобус на месте.
 		local pose = poseAt(distance)
 		local target = pose:PointToWorldSpace(offset)
@@ -361,6 +373,9 @@ function RouteService:Start()
 	end
 	isFinished = function(): boolean
 		return finished
+	end
+	stopRun = function()
+		finished = true
 	end
 end
 

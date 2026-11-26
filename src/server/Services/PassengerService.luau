@@ -21,7 +21,7 @@ local DOOR_STEP_OUT = 2 -- studs от двери наружу: куда подх
 local SKIN = { Color3.fromRGB(234, 192, 158), Color3.fromRGB(198, 145, 105), Color3.fromRGB(141, 95, 64), Color3.fromRGB(255, 220, 190) }
 local CLOTHES = { Color3.fromRGB(60, 70, 90), Color3.fromRGB(120, 40, 40), Color3.fromRGB(70, 90, 60), Color3.fromRGB(90, 90, 90), Color3.fromRGB(150, 120, 60), Color3.fromRGB(40, 40, 45) }
 
-type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, seat: Seat? }
+type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, keptExit: number?, seat: Seat? }
 
 local PassengerService = {}
 
@@ -91,6 +91,47 @@ function PassengerService:Clear()
 		end
 		table.clear(list)
 	end
+end
+
+-- Модель севшего пассажира по PassengerId; nil — такого в салоне нет.
+function PassengerService:GetModel(id: string): Model?
+	local p = onboard[id]
+	return if p then p.model else nil
+end
+
+-- Все севшие: [PassengerId] = модель (копия таблицы).
+function PassengerService:GetOnboard(): { [string]: Model }
+	local result: { [string]: Model } = {}
+	for id, p in onboard do
+		result[id] = p.model
+	end
+	return result
+end
+
+-- Не выпускать на его остановке (аномалия; оригинал двойника — без него двойника не вычислить).
+function PassengerService:KeepAboard(id: string)
+	local p = onboard[id]
+	if p and not p.keptExit then
+		p.keptExit = p.exitStop
+		p.exitStop = math.huge
+	end
+end
+
+-- Снова обычный пассажир: выйдет на своей остановке (или при следующем открытии дверей, если её уже проехали).
+function PassengerService:ReleaseAboard(id: string)
+	local p = onboard[id]
+	if p and p.keptExit then
+		p.exitStop = p.keptExit
+		p.keptExit = nil
+	end
+end
+
+-- Высадить (кондуктор): вылетает за дверь, PassengerLeft("Ejected"). false — такого в салоне нет.
+local ejectNow = function(_id: string): boolean
+	return false
+end
+function PassengerService:Eject(id: string): boolean
+	return ejectNow(id)
 end
 
 function PassengerService:Init(services: { [string]: any })
@@ -201,7 +242,7 @@ function PassengerService:Start()
 		model.Parent = zone
 		pcall(body.SetNetworkOwner, body, nil) -- ходит сервер, а не ближайший игрок
 		waiting[stop] = waiting[stop] or {}
-		table.insert(waiting[stop], { id = id, model = model, humanoid = humanoid, exitStop = math.random(stop + 1, lastStop), seat = nil })
+		table.insert(waiting[stop], { id = id, model = model, humanoid = humanoid, exitStop = math.random(stop + 1, lastStop), keptExit = nil, seat = nil })
 	end
 
 	local function board(p: Passenger, stop: number)
@@ -230,17 +271,22 @@ function PassengerService:Start()
 			seat:Sit(p.humanoid)
 			p.model.Parent = passengersFolder
 			onboard[p.id] = p
+			-- Аномалия сама не выходит: едет, пока её не высадят.
+			local anomalies = registry.AnomalyService
+			if anomalies and anomalies:OnBoarded(p.id, p.model) then
+				PassengerService:KeepAboard(p.id)
+			end
 			passengerBoarded:FireAllClients(p.id)
 			payFare()
 			log(`Остановка {stop}: сел пассажир (выйдет на {p.exitStop})`)
 		end)
 	end
 
-	local function exitBus(p: Passenger)
+	local function exitBus(p: Passenger, reason: string)
 		onboard[p.id] = nil
 		unseat(p)
-		passengerLeft:FireAllClients(p.id, "Exited")
-		log(`Остановка {currentStop}: вышел пассажир`)
+		passengerLeft:FireAllClients(p.id, reason)
+		log(`{reason}: пассажир покинул автобус`)
 		local outside = doorOutside(p.model:GetPivot().Position)
 		p.model.Parent = map -- из папки Passengers: инструменты кондуктора на него больше не действуют
 		p.model:PivotTo(CFrame.lookAt(outside, outside + root.CFrame.RightVector))
@@ -248,6 +294,14 @@ function PassengerService:Start()
 		task.delay(EXIT_TIME, function()
 			p.model:Destroy()
 		end)
+	end
+	ejectNow = function(id: string): boolean
+		local p = onboard[id]
+		if not p then
+			return false
+		end
+		exitBus(p, "Ejected")
+		return true
 	end
 
 	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
@@ -279,7 +333,7 @@ function PassengerService:Start()
 		-- Сначала выходят (освобождают места): кому сюда, и кто проехал свою остановку при закрытых дверях.
 		for _, p in onboard do
 			if p.exitStop <= stop then
-				exitBus(p)
+				exitBus(p, "Exited")
 			end
 		end
 		local list = waiting[stop]

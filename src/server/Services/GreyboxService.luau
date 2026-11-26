@@ -9,8 +9,10 @@ local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 
 -- Геометрия тестовой карты — не баланс, поэтому здесь, а не в Config.
-local SEGMENTS_PER_LEG = 3 -- отрезков дороги между остановками
-local POINT_SPACING = 130 -- studs между точками: перегон ≈ 390 studs ≈ 12 сек на полной скорости
+-- Длина перегона = SEGMENTS_PER_LEG × POINT_SPACING. Сейчас ≈ 1440 studs ≈ 35 сек на автопилоте —
+-- время найти аномалии. Для быстрых тестов можно уменьшить SEGMENTS_PER_LEG (3 ≈ 12 сек).
+local SEGMENTS_PER_LEG = 9 -- отрезков дороги между остановками
+local POINT_SPACING = 160 -- studs между точками
 local CURVE_AMPLITUDE = 120 -- насколько дорога виляет вбок
 local GROUND_TOP = 2 -- выше стандартного Baseplate (его верх на 0), чтобы поверхности не мерцали
 local ROAD_TOP = GROUND_TOP + 0.2
