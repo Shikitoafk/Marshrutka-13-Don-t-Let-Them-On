@@ -25,4 +25,11 @@ function RateLimit.new(perSecond: number): (Player) -> boolean
 	end
 end
 
+-- Самопроверка (только в Studio): лимит 2 — два вызова проходят, третий нет.
+if game:GetService("RunService"):IsStudio() then
+	local allow = RateLimit.new(2)
+	local someone = {} :: any
+	assert(allow(someone) and allow(someone) and not allow(someone), "[RateLimit] самопроверка не прошла")
+end
+
 return RateLimit

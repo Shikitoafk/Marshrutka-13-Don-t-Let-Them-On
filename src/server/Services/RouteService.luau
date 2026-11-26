@@ -13,7 +13,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 
 -- Частота ремоутов на игрока в секунду: всё сверх отбрасываем до проверок (защита от флуда).
-local DRIVER_INPUT_RATE = 20 -- клиент шлёт при каждом изменении газа/тормоза
+local DRIVER_INPUT_RATE = 30 -- клиент шлёт только при изменении газа/тормоза; столько не натапать
 local DRIVER_BUTTON_RATE = 5 -- двери и сигнал
 
 local WHEELBASE = 20 -- studs между «осями»: поворот растягивается на эту длину, без рывков
@@ -257,8 +257,15 @@ function RouteService:Start()
 	local allowHorn = RateLimit.new(DRIVER_BUTTON_RATE)
 
 	Remotes.Event("DriverInput").OnServerEvent:Connect(function(player: Player, value: unknown)
+		if not allowInput(player) then
+			-- Отброшенным могло оказаться «отпустил газ»: безопаснее катиться, чем разгоняться дальше.
+			if player == getDriver() then
+				throttle = 0
+			end
+			return
+		end
 		-- value == value отсекает NaN: с ним автобус улетел бы в никуда
-		if allowInput(player) and player == getDriver() and type(value) == "number" and value == value then
+		if player == getDriver() and type(value) == "number" and value == value then
 			throttle = math.clamp(value, -1, 1)
 		end
 	end)
