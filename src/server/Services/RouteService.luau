@@ -10,6 +10,11 @@ local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
+
+-- Частота ремоутов на игрока в секунду: всё сверх отбрасываем до проверок (защита от флуда).
+local DRIVER_INPUT_RATE = 20 -- клиент шлёт при каждом изменении газа/тормоза
+local DRIVER_BUTTON_RATE = 5 -- двери и сигнал
 
 local WHEELBASE = 20 -- studs между «осями»: поворот растягивается на эту длину, без рывков
 local POSITION_GAIN = 10 -- как быстро гасим отклонение от дороги (1/сек)
@@ -247,15 +252,19 @@ function RouteService:Start()
 		end
 	end)
 
+	local allowInput = RateLimit.new(DRIVER_INPUT_RATE)
+	local allowDoors = RateLimit.new(DRIVER_BUTTON_RATE)
+	local allowHorn = RateLimit.new(DRIVER_BUTTON_RATE)
+
 	Remotes.Event("DriverInput").OnServerEvent:Connect(function(player: Player, value: unknown)
 		-- value == value отсекает NaN: с ним автобус улетел бы в никуда
-		if player == getDriver() and type(value) == "number" and value == value then
+		if allowInput(player) and player == getDriver() and type(value) == "number" and value == value then
 			throttle = math.clamp(value, -1, 1)
 		end
 	end)
 
 	Remotes.Event("DoorsRequest").OnServerEvent:Connect(function(player: Player, open: unknown)
-		if player ~= getDriver() or type(open) ~= "boolean" or speed >= STOPPED_SPEED or time() - lastDoorsAt < DOOR_COOLDOWN then
+		if not allowDoors(player) or player ~= getDriver() or type(open) ~= "boolean" or speed >= STOPPED_SPEED or time() - lastDoorsAt < DOOR_COOLDOWN then
 			return
 		end
 		lastDoorsAt = time()
@@ -273,7 +282,7 @@ function RouteService:Start()
 	end
 	local lastHornAt = 0
 	Remotes.Event("HornRequest").OnServerEvent:Connect(function(player: Player)
-		if player ~= getDriver() or time() - lastHornAt < HORN_COOLDOWN then
+		if not allowHorn(player) or player ~= getDriver() or time() - lastHornAt < HORN_COOLDOWN then
 			return
 		end
 		lastHornAt = time()
