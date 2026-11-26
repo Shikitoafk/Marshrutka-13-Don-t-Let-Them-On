@@ -35,7 +35,7 @@ local EVENTS = {
 	"AnomalyEscalated", -- (level: number, effect: string)
 	"RunEnded", -- (summary: {[string]: any})
 	"CurrencyChanged", -- (tenge: number)
-	"Notify", -- (text: string, kind: "Info" | "Warn" | "Good" | "Bad")
+	"Notify", -- (key: string, kind: "Info" | "Warn" | "Good" | "Bad", params: {[string]: any}?) — ключ из Strings.luau
 }
 
 local FUNCTIONS = {
