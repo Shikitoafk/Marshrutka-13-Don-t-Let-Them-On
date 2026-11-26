@@ -79,7 +79,7 @@ local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecisio
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 	if added and player.Parent == Players then
-		notify:FireClient(player, "Оберег добавлен.", "Good")
+		notify:FireClient(player, "notify.amulet_added", "Good")
 	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted
 end

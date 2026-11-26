@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local ResultsController = {}
 
@@ -97,6 +98,7 @@ end
 
 local function screenGui(parent: Instance, name: string, order: number): ScreenGui
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = name
 	screen.DisplayOrder = order
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
@@ -135,11 +137,11 @@ function ResultsController:Start()
 	panel.Parent = backdrop
 
 	local title = label(panel, "Outcome", UDim2.fromScale(0.06, 0.07), UDim2.fromScale(0.88, 0.15), 33)
-	local earnings = metric(panel, "TripEarnings", "За рейс", 0.06, 0.26)
-	local caught = metric(panel, "Caught", "Аномалии", 0.51, 0.26)
-	local mistakes = metric(panel, "Mistakes", "Ошибки", 0.06, 0.48)
-	local stops = metric(panel, "StopsReached", "Остановки", 0.51, 0.48)
-	local depot = button(panel, "ReturnToDepot", "В депо", UDim2.fromScale(0.06, 0.94), UDim2.fromScale(0.88, 0.20))
+	local earnings = metric(panel, "TripEarnings", Strings.get("results.earnings"), 0.06, 0.26)
+	local caught = metric(panel, "Caught", Strings.get("results.caught"), 0.51, 0.26)
+	local mistakes = metric(panel, "Mistakes", Strings.get("results.mistakes"), 0.06, 0.48)
+	local stops = metric(panel, "StopsReached", Strings.get("results.stops"), 0.51, 0.48)
+	local depot = button(panel, "ReturnToDepot", Strings.get("results.depot"), UDim2.fromScale(0.06, 0.94), UDim2.fromScale(0.88, 0.20))
 	depot.AnchorPoint = Vector2.new(0, 1)
 	constrain(depot, Vector2.new(0, 48), Vector2.new(math.huge, math.huge))
 
@@ -158,14 +160,14 @@ function ResultsController:Start()
 	local toastNumber = 0
 	local roundState: string? = nil
 
-	local function notify(text: string, kind: string)
+	local function notify(text: string, kind: string, parameters: Strings.Parameters?)
 		if type(text) ~= "string" or text == "" then
 			return
 		end
 		toastNumber += 1
 		local currentNumber = toastNumber
 		toast.BackgroundColor3 = TOAST_COLORS[kind] or TOAST_COLORS.Info
-		message.Text = text
+		message.Text = Strings.notify(text, parameters)
 		toast.Visible = true
 		task.delay(TOAST_DURATION, function()
 			if currentNumber == toastNumber then
@@ -185,7 +187,7 @@ function ResultsController:Start()
 		if roundState == "Lobby" or roundState == "Countdown" then
 			return
 		end
-		title.Text = if summary.Won then "Победа" else "Поражение"
+		title.Text = Strings.get(if summary.Won then "results.win" else "results.loss")
 		title.TextColor3 = if summary.Won then GOOD else BAD
 		local prefix = if summary.Tenge > 0 then "+" else ""
 		earnings.Text = `{prefix}{summary.Tenge} ₸`
@@ -209,8 +211,8 @@ function ResultsController:Start()
 		tools.BackgroundTransparency = 1
 		constrain(tools, Vector2.new(0, 48), Vector2.new(450, 60))
 		tools.Parent = preview
-		local example = button(tools, "ShowResults", "Пример итогов", UDim2.fromScale(0, 0), UDim2.fromScale(0.48, 1))
-		local exampleToast = button(tools, "ShowToast", "Пример тоста", UDim2.fromScale(0.52, 0), UDim2.fromScale(0.48, 1))
+		local example = button(tools, "ShowResults", Strings.get("results.preview"), UDim2.fromScale(0, 0), UDim2.fromScale(0.48, 1))
+		local exampleToast = button(tools, "ShowToast", Strings.get("results.preview_toast"), UDim2.fromScale(0.52, 0), UDim2.fromScale(0.48, 1))
 		local won = true
 		example.Activated:Connect(function()
 			showResults({
@@ -223,7 +225,7 @@ function ResultsController:Start()
 			won = not won
 		end)
 		local kinds = { "Info", "Warn", "Good", "Bad" }
-		local examples = { "Следующая остановка", "Двери ещё открыты", "Аномалия высажена", "Пассажир был человеком" }
+		local examples = { "notify.next_stop", "notify.doors_open", "notify.anomaly_ejected", "notify.human_ejected" }
 		local index = 1
 		exampleToast.Activated:Connect(function()
 			notify(examples[index], kinds[index])

@@ -8,7 +8,9 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
-local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local DriverController = {}
 
@@ -72,6 +74,7 @@ function DriverController:Start()
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = "DriverControls"
 	screen.ResetOnSpawn = false
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
@@ -96,9 +99,9 @@ function DriverController:Start()
 	local horn = makeButton(panel, "Horn", 0, 0.54, BUTTON_COLOR)
 
 	local keyboardLabels = UserInputService.KeyboardEnabled and not UserInputService.TouchEnabled
-	gas.Text = if keyboardLabels then "Газ · W" else "Газ"
-	brake.Text = if keyboardLabels then "Тормоз · S" else "Тормоз"
-	horn.Text = if keyboardLabels then "Сигнал · H" else "Сигнал"
+	gas.Text = Strings.get("driver.throttle") .. (if keyboardLabels then " · W" else "")
+	brake.Text = Strings.get("driver.brake") .. (if keyboardLabels then " · S" else "")
+	horn.Text = Strings.get("driver.horn") .. (if keyboardLabels then " · H" else "")
 
 	local role: string? = nil
 	local roundState: string? = nil
@@ -168,7 +171,7 @@ function DriverController:Start()
 
 	local function updateDoors(open: boolean)
 		doorsOpen = open
-		local label = if open then "Закрыть" else "Двери"
+		local label = Strings.get(if open then "ui.close" else "driver.doors")
 		doors.Text = if keyboardLabels then label .. " · E" else label
 		doors.BackgroundColor3 = if open then GAS_COLOR else BUTTON_COLOR
 	end

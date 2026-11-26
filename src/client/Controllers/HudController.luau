@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local HudController = {}
 
@@ -17,6 +18,33 @@ local TEXT_COLOR = Color3.fromRGB(250, 244, 231)
 local MUTED_COLOR = Color3.fromRGB(193, 207, 225)
 local AMBER_COLOR = Color3.fromRGB(246, 198, 110)
 local STOP_COUNT = #Config.STOP_NAMES
+
+local function localizeStopSign(instance: Instance)
+	if not instance:IsA("TextLabel") then
+		return
+	end
+	local sign = instance.Parent
+	if not sign or not sign:IsA("BillboardGui") then
+		return
+	end
+	local spawn = sign.Parent
+	local zone = if spawn and spawn.Name == "Spawn" then spawn.Parent else nil
+	local map = Workspace:FindFirstChild("Map")
+	local stops = if map then map:FindFirstChild("Stops") else nil
+	if not zone or not stops or zone.Parent ~= stops then
+		return
+	end
+	local index = zone:GetAttribute("StopIndex")
+	if type(index) ~= "number" then
+		return
+	end
+	local name = zone:GetAttribute("StopName")
+	instance.AutoLocalize = false
+	instance.Text = Strings.get("stop.sign", {
+		index = index,
+		name = Strings.stopName(index, if type(name) == "string" then name else nil),
+	})
+end
 
 local function roundCorners(gui: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")
@@ -95,7 +123,7 @@ local function makeGuide(screen: ScreenGui): Frame
 	sizeLimit.Parent = panel
 
 	local title = makeLabel(panel, "Title", UDim2.fromScale(0.05, 0.03), UDim2.fromScale(0.9, 0.18), 24)
-	title.Text = "Памятка кондуктора"
+	title.Text = Strings.get("hud.guide")
 	title.Font = Enum.Font.GothamBold
 	title.TextColor3 = AMBER_COLOR
 
@@ -130,11 +158,13 @@ local function makeGuide(screen: ScreenGui): Frame
 		hint.Font = Enum.Font.GothamMedium
 		hint.TextColor3 = TEXT_COLOR
 		hint.RichText = true
-		hint.Text = `<b>{anomaly.Name}</b>\n{anomaly.Hint}`
+		local name = Strings.get(`anomaly.{anomaly.Id}.name`)
+		local description = Strings.get(`anomaly.{anomaly.Id}.hint`)
+		hint.Text = `<b>{name}</b>\n{description}`
 		hint.Parent = list
 	end
 
-	local close = makeButton(panel, "Закрыть")
+	local close = makeButton(panel, Strings.get("ui.close"))
 	close.Name = "CloseGuide"
 	close.AnchorPoint = Vector2.new(0, 1)
 	close.Position = UDim2.fromScale(0.05, 0.96)
@@ -151,6 +181,7 @@ function HudController:Start()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
 	screen.Name = "TripHud"
+	screen.AutoLocalize = false
 	screen.DisplayOrder = 2
 	screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
@@ -198,7 +229,7 @@ function HudController:Start()
 	roundCorners(fill, 5)
 	fill.Parent = track
 
-	local guideButton = makeButton(panel, "Памятка кондуктора")
+	local guideButton = makeButton(panel, Strings.get("hud.guide"))
 	guideButton.Name = "OpenGuide"
 	guideButton.AnchorPoint = Vector2.new(0.5, 0)
 	guideButton.Position = UDim2.fromScale(0.5, 1.07)
@@ -214,11 +245,11 @@ function HudController:Start()
 	local roundState = "Lobby"
 	local function applyRole(assignedRole: string?)
 		if assignedRole == "Driver" then
-			role.Text = "Водитель"
+			role.Text = Strings.get("hud.driver")
 		elseif assignedRole == "Conductor" then
-			role.Text = "Кондуктор"
+			role.Text = Strings.get("hud.conductor")
 		else
-			role.Text = "Роль —"
+			role.Text = Strings.get("hud.role_pending")
 		end
 		guideButton.Visible = assignedRole == "Conductor"
 		if not guideButton.Visible then
@@ -227,12 +258,12 @@ function HudController:Start()
 	end
 
 	local function applyStop(index: number, name: string)
-		stop.Text = `Остановка {index}/{STOP_COUNT} · {name}`
+		stop.Text = Strings.get("hud.stop", { index = index, total = STOP_COUNT, name = Strings.stopName(index, name) })
 	end
 
 	local function applyHealth(value: number)
 		local clampedHealth = math.clamp(value, 0, Config.BUS_MAX_HEALTH)
-		health.Text = `Прочность {math.round(clampedHealth)}/{Config.BUS_MAX_HEALTH}`
+		health.Text = Strings.get("hud.health", { value = math.round(clampedHealth), max = Config.BUS_MAX_HEALTH })
 		fill.Size = UDim2.fromScale(clampedHealth / Config.BUS_MAX_HEALTH, 1)
 		fill.Visible = clampedHealth > 0
 	end
@@ -242,8 +273,8 @@ function HudController:Start()
 	end
 
 	local function resetTrip()
-		stop.Text = `Остановка —/{STOP_COUNT}`
-		health.Text = "Прочность —"
+		stop.Text = Strings.get("hud.stop_pending", { total = STOP_COUNT })
+		health.Text = Strings.get("hud.health_pending")
 		fill.Visible = false
 		applyRole(nil)
 	end
@@ -260,6 +291,15 @@ function HudController:Start()
 	end
 
 	resetTrip()
+
+	Workspace.DescendantAdded:Connect(localizeStopSign)
+	local map = Workspace:FindFirstChild("Map")
+	local stops = if map then map:FindFirstChild("Stops") else nil
+	if stops then
+		for _, descendant in stops:GetDescendants() do
+			localizeStopSign(descendant)
+		end
+	end
 
 	if RunService:IsStudio() and Workspace:GetAttribute("StudioHudLobbyPreview") == true then
 		local preview = playerGui:WaitForChild("StudioRoundPreview") :: BindableEvent

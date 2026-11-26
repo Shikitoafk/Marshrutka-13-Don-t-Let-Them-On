@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local LobbyController = {}
 
@@ -62,7 +63,7 @@ local function makeRow(parent: ScrollingFrame, player: Player, order: number, re
 	name.Size = UDim2.fromScale(0.65, 1)
 	styleText(name, 18)
 	name.TextXAlignment = Enum.TextXAlignment.Left
-	name.Text = if player == Players.LocalPlayer then player.DisplayName .. " · вы" else player.DisplayName
+	name.Text = if player == Players.LocalPlayer then Strings.get("ui.you", { name = player.DisplayName }) else player.DisplayName
 	name.Parent = row
 
 	local status = Instance.new("TextLabel")
@@ -72,7 +73,7 @@ local function makeRow(parent: ScrollingFrame, player: Player, order: number, re
 	styleText(status, 17)
 	status.TextXAlignment = Enum.TextXAlignment.Right
 	status.TextColor3 = if ready then READY_COLOR else MUTED_COLOR
-	status.Text = if ready then "Готов" else "Ждёт"
+	status.Text = Strings.get(if ready then "lobby.ready" else "lobby.waiting")
 	status.Parent = row
 	row.Parent = parent
 	return row
@@ -85,6 +86,7 @@ function LobbyController:Start()
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = "DepotLobby"
 	screen.DisplayOrder = 1
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
@@ -115,7 +117,7 @@ function LobbyController:Start()
 	styleText(title, 30)
 	title.Font = Enum.Font.GothamBold
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "Депо"
+	title.Text = Strings.get("lobby.title")
 	title.Parent = panel
 
 	local countdown = Instance.new("TextLabel")
@@ -170,13 +172,13 @@ function LobbyController:Start()
 	local localUserId = tostring(localPlayer.UserId)
 
 	local function updateCountdown()
-		local text = "Ожидание игроков"
+		local text = Strings.get("lobby.waiting_players")
 		if state == "Countdown" then
 			if countdownEndsAt then
 				local seconds = math.ceil(countdownEndsAt - Workspace:GetServerTimeNow())
-				text = if seconds > 0 then `Старт через {seconds} с` else "Отправляемся…"
+				text = if seconds > 0 then Strings.get("lobby.countdown", { seconds = seconds }) else Strings.get("lobby.departing")
 			else
-				text = "Отсчёт начался"
+				text = Strings.get("lobby.countdown_started")
 			end
 		end
 		if countdown.Text ~= text then
@@ -204,7 +206,7 @@ function LobbyController:Start()
 		end
 
 		local isReady = readyByUserId[localUserId] == true
-		readyButton.Text = if isReady then "Отменить готовность" else "Готов"
+		readyButton.Text = Strings.get(if isReady then "lobby.unready" else "lobby.ready")
 		readyButton.BackgroundColor3 = if isReady then ROW_COLOR else AMBER_COLOR
 		readyButton.TextColor3 = if isReady then TEXT_COLOR else PANEL_COLOR
 	end
