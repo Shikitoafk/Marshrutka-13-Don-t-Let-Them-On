@@ -116,6 +116,8 @@ local function makePrompt(parent: BasePart, caption: string, key: Enum.KeyCode, 
 	prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
 	prompt.UIOffset = Vector2.new(0, y)
 	prompt.ClickablePrompt = true
+	prompt.RequiresLineOfSight = false
+	prompt.HoldDuration = 0
 	prompt.Enabled = false
 	prompt.Parent = parent
 	return prompt
@@ -133,6 +135,16 @@ local function getRoot(model: Model?): BasePart?
 	end
 	local root = model:FindFirstChild("HumanoidRootPart")
 	return if root and root:IsA("BasePart") then root else model.PrimaryPart
+end
+
+local function getPromptPart(model: Model): BasePart?
+	for _, name in { "UpperTorso", "Head", "Torso" } do
+		local part = model:FindFirstChild(name)
+		if part and part:IsA("BasePart") then
+			return part
+		end
+	end
+	return nil
 end
 
 function ConductorController:Init(_controllers: { [string]: any }) end
@@ -228,7 +240,8 @@ function ConductorController:Start()
 
 	local function canReach(target: Target): boolean
 		local root = getRoot(player.Character)
-		return isCurrent(target) and root ~= nil and (target.part.Position - root.Position).Magnitude <= Config.INSPECT_RANGE
+		local passengerRoot = getRoot(target.model) or target.part
+		return isCurrent(target) and root ~= nil and (passengerRoot.Position - root.Position).Magnitude <= Config.INSPECT_RANGE
 	end
 
 	local function updatePromptVisibility()
@@ -356,7 +369,7 @@ function ConductorController:Start()
 				continue
 			end
 			local id = model:GetAttribute("PassengerId")
-			local part = getRoot(model) or model:FindFirstChildWhichIsA("BasePart", true)
+			local part = getPromptPart(model)
 			if type(id) ~= "string" or id == "" or not part then
 				continue
 			end
