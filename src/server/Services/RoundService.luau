@@ -17,9 +17,15 @@ local AISLE_STEP = 4 -- studs между игроками в проходе
 local RoundService = {}
 
 local registry: { [string]: any } = {}
+local riders: { Player } = {} -- кто едет в этом рейсе
 
 function RoundService:Init(services: { [string]: any })
 	registry = services
+end
+
+-- Игроки текущего рейса (копия); вне рейса — пусто.
+function RoundService:GetRiders(): { Player }
+	return table.clone(riders)
 end
 
 function RoundService:Start()
@@ -45,7 +51,6 @@ function RoundService:Start()
 	local state = "Lobby"
 	local ready: { [string]: boolean } = {} -- [tostring(UserId)] = true
 	local countdownEndsAt = 0
-	local riders: { Player } = {}
 	local boarded: { [Player]: boolean } = {}
 	local lastReadyAt: { [Player]: number } = {}
 
@@ -86,6 +91,10 @@ function RoundService:Start()
 				end
 			end
 			table.clear(riders)
+			local passengers = registry.PassengerService
+			if passengers then
+				passengers:Clear()
+			end
 			route:ResetRun() -- в автобусе никого — можно перенести его на старт
 			state = "Lobby"
 			broadcast()

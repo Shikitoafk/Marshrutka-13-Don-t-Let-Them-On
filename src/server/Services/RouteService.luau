@@ -30,6 +30,12 @@ local registry: { [string]: any } = {}
 local path: { Vector3 } = {}
 local along: { number } = {} -- along[i] — сколько studs по дороге от первой точки до i-й
 
+-- Сигналы для других серверных сервисов (клиентам уходят ремоуты): StopChanged(index, name, phase), DoorsChanged(open).
+local stopSignal = Instance.new("BindableEvent")
+local doorsSignal = Instance.new("BindableEvent")
+RouteService.StopChanged = stopSignal.Event
+RouteService.DoorsChanged = doorsSignal.Event
+
 -- Управление рейсом для RoundService; настоящие функции появляются в :Start(), когда автобус найден.
 local startRun = function() end
 local resetRun = function() end
@@ -206,6 +212,7 @@ function RouteService:Start()
 	local function announce(s: Stop, phase: string)
 		lastStop, lastPhase = s, phase
 		stopChanged:FireAllClients(s.index, s.name, phase)
+		stopSignal:Fire(s.index, s.name, phase)
 		if RunService:IsStudio() then
 			print(`[Route] Остановка {s.index} «{s.name}»: {phase}`) -- HUD покажет это только с RoundService (T04)
 		end
@@ -224,6 +231,7 @@ function RouteService:Start()
 		for _, door in doors do
 			TweenService:Create(door.weld, DOOR_TWEEN, { C0 = if open then door.open else door.closed }):Play()
 		end
+		doorsSignal:Fire(open)
 	end
 
 	-- Зашедший посреди рейса сразу видит, какая остановка.
