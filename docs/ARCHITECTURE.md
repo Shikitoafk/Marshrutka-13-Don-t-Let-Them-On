@@ -154,12 +154,18 @@ ServerStorage
 
 | Сервис | Метод | Примечание |
 |---|---|---|
-| `DataService` | `AddTenge(player, amount): boolean` | Целое число, может быть отрицательным. **Может подождать** загрузки профиля — вызывать из `task.spawn`, если нельзя ждать. `false` — профиль недоступен |
+| `DataService` | `AddTenge(player, amount): boolean` | Целое число, может быть отрицательным. **Может подождать** загрузки профиля — вызывать из `task.spawn`, если нельзя ждать. `false` — профиль недоступен. **VIP x2 применяется внутри** (только к положительным суммам) — сами не умножайте. Для итогов `RunEnded.Tenge` учитывайте x2 через `MonetizationService:HasVIP` |
 | `DataService` | `IncrementStat(player, "Runs" \| "Wins" \| "Caught"): boolean` | То же |
 | `DataService` | `GetProfile(player): Profile?` | Копия; `nil`, пока не загружен |
-| `RoleService` | `GetDriver(): Player?` | `nil` = автопилот |
+| `RoleService` | `GetDriver(): Player?`, `AssignRoles(players)`, `AddConductor(player)`, `ClearRoles()` | `nil` = автопилот |
+| `RouteService` | `StartRun()`, `ResetRun()`, `IsFinished(): boolean` | `ResetRun` — только когда в салоне никого |
 | `AnomalyService` | `GetHealth(): number` | Прочность автобуса |
-| `MonetizationService` | `HasVIP(player): boolean`, `ConsumeAmulet(player): boolean` | T11 |
+| `MonetizationService` | `HasVIP(player): boolean`, `ConsumeAmulet(player): boolean` | `ConsumeAmulet` ходит в DataStore — **ждёт**; вызывать один раз при прочности 0 |
+
+## Звуки: кто что играет (решение по PR #9/#10)
+
+- **Сигнал** играет только сервер (`RouteService`, звук в автобусе — слышат все). Клиент сигнал сам не проигрывает.
+- Всё остальное (двигатель, двери, радио, шёпот, скример, эмбиент) — клиент, `AtmosphereController`.
 
 ## Пассажиры
 

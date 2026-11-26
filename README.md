@@ -49,3 +49,4 @@
 ## Публикация
 
 File → Publish to Roblox. Для сохранений: Game Settings → Security → **Enable Studio Access to API Services**.
+**Игроков на сервере — 4** (Game Settings → Places → Max Players = 4): один сервер = одна маршрутка.
