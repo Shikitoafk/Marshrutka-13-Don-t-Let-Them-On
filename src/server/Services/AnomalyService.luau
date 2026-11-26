@@ -1,0 +1,321 @@
+--!strict
+-- Аномалии. При посадке пассажир с шансом ANOMALY_CHANCE становится аномалией (не больше MAX_ANOMALIES_AT_ONCE):
+-- тип по Weight. Правда хранится ТОЛЬКО здесь, на модель ставится лишь подсказка (CueAttribute).
+-- Кондукторы проверяют (InspectPassenger) и высаживают (EjectPassenger). Аномалия в салоне на отъезде от остановки —
+-- урон и эскалация; прочность 0 — Оберег или поражение. Итоги рейса (RunEnded) тоже отсюда.
+
+local RunService = game:GetService("RunService")
+local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
+
+type AnomalyType = AnomalyTypes.AnomalyType
+
+local MAX_ID_LENGTH = 64 -- GUID короче; длиннее — мусор от клиента
+local WRONG_ROUTES = { "№31", "№18", "№130" }
+
+local AnomalyService = {}
+
+local registry: { [string]: any } = {}
+local truth: { [string]: AnomalyType } = {} -- [PassengerId] = тип; только аномалии в салоне
+local tickets: { [string]: { [string]: string } } = {} -- [PassengerId] = {Route, Date}
+local health = Config.BUS_MAX_HEALTH
+local hits = 0 -- сколько раз автобус получил урон за рейс (уровень эскалации)
+local amuletTried = false
+local caught, mistakes, stopsReached = 0, 0, 0
+local earnedPlus, earnedMinus = 0, 0 -- тенге за рейс без VIP: плюсы VIP удваивает, минусы нет
+
+local notify = Remotes.Event("Notify")
+
+local function log(text: string)
+	if RunService:IsStudio() then
+		print(`[Anomaly] {text}`) -- только в Studio: в игре правду никто не видит
+	end
+end
+
+local function riders(): { Player }
+	local round = registry.RoundService
+	return if round then round:GetRiders() else {}
+end
+
+local function notifyRiders(text: string, kind: string)
+	for _, player in riders() do
+		notify:FireClient(player, text, kind)
+	end
+end
+
+-- Деньги всем в рейсе; AddTenge может ждать профиль, поэтому в task.spawn.
+local function payRiders(amount: number)
+	local data = registry.DataService
+	if not data then
+		return
+	end
+	for _, player in riders() do
+		task.spawn(data.AddTenge, data, player, amount)
+	end
+end
+
+local function ticket(wrong: boolean): { [string]: string }
+	local route = "№" .. Config.ROUTE_NUMBER
+	local today = os.date("%d.%m.%Y")
+	if not wrong then
+		return { Route = route, Date = today }
+	end
+	if math.random() < 0.5 then
+		return { Route = WRONG_ROUTES[math.random(#WRONG_ROUTES)], Date = today }
+	end
+	return { Route = route, Date = string.sub(today, 1, 6) .. "1986" }
+end
+
+-- Тип по Weight; двойник — только если есть с кого копировать.
+local function pickType(canTwin: boolean): AnomalyType
+	local total = 0
+	for _, kind in AnomalyTypes do
+		if canTwin or kind.Id ~= "Twin" then
+			total += kind.Weight
+		end
+	end
+	local roll = math.random() * total
+	for _, kind in AnomalyTypes do
+		if canTwin or kind.Id ~= "Twin" then
+			roll -= kind.Weight
+			if roll <= 0 then
+				return kind
+			end
+		end
+	end
+	return AnomalyTypes[1]
+end
+
+-- Двойник: цвета частей и одежда как у оригинала.
+local function copyLook(from: Model, to: Model)
+	for _, item in to:GetDescendants() do
+		if item:IsA("BasePart") then
+			local same = from:FindFirstChild(item.Name, true)
+			if same and same:IsA("BasePart") then
+				item.Color = same.Color
+			end
+		elseif item:IsA("Clothing") then
+			item:Destroy()
+		end
+	end
+	for _, item in from:GetChildren() do
+		if item:IsA("Clothing") then
+			item:Clone().Parent = to
+		end
+	end
+end
+
+local function turnHead(model: Model)
+	local neck = model:FindFirstChild("Neck", true)
+	if neck and neck:IsA("Motor6D") then
+		neck.C0 = neck.C0 * CFrame.Angles(0, math.pi, 0)
+	end
+end
+
+function AnomalyService:GetHealth(): number
+	return health
+end
+
+-- PassengerService зовёт при посадке. true — аномалия (сама не выйдет).
+function AnomalyService:OnBoarded(id: string, model: Model): boolean
+	earnedPlus += Config.FARE_PER_PASSENGER -- плату начисляет PassengerService, здесь только считаем для итогов
+	tickets[id] = ticket(false)
+	local count = 0
+	for _ in truth do
+		count += 1
+	end
+	if count >= Config.MAX_ANOMALIES_AT_ONCE or math.random() >= Config.ANOMALY_CHANCE then
+		return false
+	end
+	local passengers = registry.PassengerService
+	local others: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
+	others[id] = nil
+	local originalId, original = next(others)
+	local kind = pickType(originalId ~= nil)
+	truth[id] = kind
+	if kind.CueAttribute then
+		model:SetAttribute(kind.CueAttribute, if kind.Id == "Twin" then originalId else true)
+	end
+	if kind.Id == "Twin" and original then
+		copyLook(original, model)
+	elseif kind.Id == "WrongHead" then
+		turnHead(model)
+	elseif kind.Id == "WrongTicket" then
+		tickets[id] = ticket(true)
+	end
+	log(`сел пассажир-аномалия: {kind.Name}`)
+	return true
+end
+
+-- RoundService зовёт в конце рейса (победа или поражение): итоги каждому, бонус, статистика.
+function AnomalyService:FinishRun(won: boolean)
+	local data, shop = registry.DataService, registry.MonetizationService
+	local bonus = if won then Config.FINISH_BONUS else 0
+	for _, player in riders() do
+		local vip = shop ~= nil and shop:HasVIP(player) -- x2 к плюсам делает DataService; в итогах считаем так же
+		Remotes.Event("RunEnded"):FireClient(player, {
+			Won = won,
+			Tenge = (earnedPlus + bonus) * (if vip then 2 else 1) + earnedMinus,
+			Caught = caught,
+			Mistakes = mistakes,
+			StopsReached = stopsReached,
+		})
+		if data then
+			task.spawn(function()
+				if won then
+					data:AddTenge(player, bonus)
+					data:IncrementStat(player, "Wins")
+				end
+				data:IncrementStat(player, "Runs")
+			end)
+		end
+	end
+end
+
+function AnomalyService:Init(services: { [string]: any })
+	registry = services
+end
+
+function AnomalyService:Start()
+	local route, passengers = registry.RouteService, registry.PassengerService
+	if not (route and passengers) then
+		warn("[AnomalyService] Нет RouteService или PassengerService — аномалий не будет")
+		return
+	end
+	local escalated = Remotes.Event("AnomalyEscalated")
+	local inspectResult = Remotes.Event("InspectResult")
+	local lastActionAt: { [Player]: number } = {}
+
+	local function resetRun()
+		table.clear(truth)
+		table.clear(tickets)
+		health, hits, amuletTried = Config.BUS_MAX_HEALTH, 0, false
+		caught, mistakes, stopsReached = 0, 0, 0
+		earnedPlus, earnedMinus = 0, 0
+	end
+
+	-- Прочность 0: Оберег (один раз за рейс) или поражение через RoundService.
+	local function onBroken()
+		local round = registry.RoundService
+		if amuletTried then
+			if round then
+				round:EndRun(false)
+			end
+			return
+		end
+		amuletTried = true
+		task.spawn(function() -- ConsumeAmulet ходит в DataStore — ждёт
+			local shop = registry.MonetizationService
+			for _, player in riders() do
+				if shop and shop:ConsumeAmulet(player) then
+					health = Config.AMULET_RESTORE_HEALTH
+					notifyRiders(`Оберег {player.Name} спас маршрутку!`, "Good")
+					return
+				end
+			end
+			if round then
+				round:EndRun(false)
+			end
+		end)
+	end
+
+	local function damage()
+		if health <= 0 then
+			return
+		end
+		health = math.max(0, health - Config.ANOMALY_DAMAGE)
+		hits += 1
+		local effects = Config.ESCALATION_EFFECTS
+		escalated:FireAllClients(hits, effects[math.min(hits, #effects)])
+		log(`урон: прочность {health}`)
+		if health <= 0 then
+			onBroken()
+		end
+	end
+
+	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
+		if phase == "Approaching" and index == 1 then
+			resetRun() -- новый рейс
+		end
+		if phase == "AtStop" or phase == "Departed" then
+			stopsReached = math.max(stopsReached, index)
+		end
+		if phase == "Departed" then
+			local aboard = passengers:GetOnboard()
+			for id in truth do
+				if aboard[id] then
+					damage() -- аномалия проехала остановку
+				end
+			end
+		end
+	end)
+
+	-- Кондуктор рядом с пассажиром в салоне? Возвращает модель или nil.
+	local function conductorNear(player: Player, id: string): Model?
+		local roles = registry.RoleService
+		if not table.find(riders(), player) or (roles and roles:GetDriver() == player) then
+			return nil
+		end
+		local model = passengers:GetModel(id)
+		local character = player.Character
+		local a = if model then model:FindFirstChild("HumanoidRootPart") else nil
+		local b = if character then character:FindFirstChild("HumanoidRootPart") else nil
+		if not (model and a and b and a:IsA("BasePart") and b:IsA("BasePart")) then
+			return nil
+		end
+		return if (a.Position - b.Position).Magnitude <= Config.INSPECT_RANGE then model else nil
+	end
+
+	local function allowed(player: Player, id: unknown): boolean
+		if type(id) ~= "string" or #id > MAX_ID_LENGTH or time() - (lastActionAt[player] or 0) < Config.INSPECT_COOLDOWN then
+			return false
+		end
+		if not conductorNear(player, id) then
+			return false
+		end
+		lastActionAt[player] = time()
+		return true
+	end
+
+	Remotes.Event("InspectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown, tool: unknown)
+		if (tool ~= "Ticket" and tool ~= "Flashlight") or not allowed(player, id) then
+			return
+		end
+		local passengerId = id :: string
+		local data: { [string]: string } = if tool == "Ticket" then tickets[passengerId] or ticket(false) else {}
+		inspectResult:FireClient(player, passengerId, tool, data)
+	end)
+
+	Remotes.Event("EjectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown)
+		if not allowed(player, id) then
+			return
+		end
+		local passengerId = id :: string
+		if not passengers:Eject(passengerId) then
+			return
+		end
+		local kind = truth[passengerId]
+		truth[passengerId] = nil
+		tickets[passengerId] = nil
+		if kind then
+			caught += 1
+			earnedPlus += Config.CATCH_REWARD
+			payRiders(Config.CATCH_REWARD)
+			notifyRiders(`Аномалия высажена: {kind.Name}! +{Config.CATCH_REWARD} ₸`, "Good")
+			local data = registry.DataService
+			if data then
+				task.spawn(data.IncrementStat, data, player, "Caught")
+			end
+		else
+			mistakes += 1
+			earnedMinus -= Config.WRONG_EJECT_PENALTY
+			payRiders(-Config.WRONG_EJECT_PENALTY)
+			notifyRiders(`Это был человек… −{Config.WRONG_EJECT_PENALTY} ₸`, "Bad")
+		end
+		log(`высадили: {if kind then kind.Name else "человек"}`)
+	end)
+end
+
+return AnomalyService
