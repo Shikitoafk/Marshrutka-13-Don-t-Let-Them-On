@@ -83,7 +83,10 @@ ServerStorage
 ### Геометрия (договорились по PR #3, обязательно и для настоящей карты)
 
 - `Bus.PrimaryPart` (в greybox — невидимый `Root`) стоит внизу по центру автобуса на уровне дороги,
-  его `LookVector` = вперёд. Только он заякорен, остальное приварено к нему.
+  его `LookVector` = вперёд. В редакторе заякорен только он, остальное приварено к нему.
+- **Во время игры автобус НЕ заякорен**: `RouteService` снимает якорь с `PrimaryPart` и двигает автобус физикой
+  (`LinearVelocity` + `AlignOrientation`), поэтому персонажей в салоне везёт сам Roblox (решение по PR #7).
+  Не якорить детали автобуса и не двигать его через CFrame/PivotTo во время рейса.
 - Двери — на **правом** борту (со стороны тротуара и `Spawn`). Двери держатся на `Weld` (анимируем `C0`).
 - Зона остановки лежит на дороге и повёрнута вдоль движения (`LookVector` — куда едем), её `Spawn` — справа.
 - Точки `Route` стоят на поверхности дороги.
@@ -146,6 +149,17 @@ ServerStorage
 | Функция | Возвращает |
 |---|---|
 | `GetProfile` | `{Tenge, Stats = {Runs, Wins, Caught}, OwnedSkins}` |
+
+## API серверных сервисов (для вызова из других сервисов через registry)
+
+| Сервис | Метод | Примечание |
+|---|---|---|
+| `DataService` | `AddTenge(player, amount): boolean` | Целое число, может быть отрицательным. **Может подождать** загрузки профиля — вызывать из `task.spawn`, если нельзя ждать. `false` — профиль недоступен |
+| `DataService` | `IncrementStat(player, "Runs" \| "Wins" \| "Caught"): boolean` | То же |
+| `DataService` | `GetProfile(player): Profile?` | Копия; `nil`, пока не загружен |
+| `RoleService` | `GetDriver(): Player?` | `nil` = автопилот |
+| `AnomalyService` | `GetHealth(): number` | Прочность автобуса |
+| `MonetizationService` | `HasVIP(player): boolean`, `ConsumeAmulet(player): boolean` | T11 |
 
 ## Пассажиры
 

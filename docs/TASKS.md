@@ -17,13 +17,13 @@
 
 ## Неделя 1 — едем по маршруту
 
-### T01 · GreyboxService — тестовая карта · **CC** · 🟦 PR #3 (ревью: ок, ждёт проверки в Studio)
+### T01 · GreyboxService — тестовая карта · **CC** · ✅
 Если `Workspace.Map` нет — построить из блоков: дорогу (≈20 точек в `Route`, плавный маршрут),
 8 зон остановок с атрибутами `StopIndex`/`StopName` (имена из `Config.STOP_NAMES`) и `Spawn` внутри,
 автобус по структуре из ARCHITECTURE.md (DriverSeat, 10 Seats, двери, Mirror, InteriorLights).
 **Готово, когда:** пустой плейс + Play → видна дорога, остановки с названиями и автобус.
 
-### T02 · RouteService — маршрутка едет · **CC** · зависит от T01 · ⬜
+### T02 · RouteService — маршрутка едет · **CC** · зависит от T01 · 🟦 PR #7 (ревью: ок, ждёт проверки в Studio)
 Автобус двигается по точкам `Route` (интерполяция между точками, поворот по направлению).
 Скорость меняется от `DriverInput` (с учётом `BUS_ACCEL/BRAKE/IDLE_DECEL/MAX_SPEED`).
 Определяет вход/выход из зоны остановки → `StopChanged` (Approaching/AtStop/Departed).
@@ -74,7 +74,7 @@ WrongHead — поворачивает голову (Neck C0). `InspectPassenger
 Конечная → победа, `RunEnded` с итогами.
 **Готово, когда:** аномалии появляются, их можно вычислить и высадить, ошибки штрафуются, есть победа и поражение.
 
-### T08 · ConductorController — инструменты · **CX** · зависит от T06 (можно начать раньше с заглушками) · 🟦 PR #4 (ревью: можно мержить)
+### T08 · ConductorController — инструменты · **CX** · зависит от T06 (можно начать раньше с заглушками) · ✅
 - **Зеркало**: кнопка → ViewportFrame с видом салона из `Bus.Mirror`; клоны пассажиров, у которых
   `HiddenInMirror` — не показываем. Обновление клонов ~10 раз/сек.
 - **Фонарик**: кнопка вкл/выкл, SpotLight от камеры, батарея `FLASHLIGHT_BATTERY`. Под лучом
@@ -85,13 +85,13 @@ WrongHead — поворачивает голову (Neck C0). `InspectPassenger
 Видно только кондукторам.
 **Готово, когда:** все 4 инструмента работают с телефона.
 
-### T09 · ResultsController · **CX** · ⬜
+### T09 · ResultsController · **CX** · 🟦 PR #5 (ревью: можно мержить)
 Экран после `RunEnded`: победа/поражение, тенге за рейс, поймано аномалий, ошибок,
 доехали до остановки N. Кнопка «В депо».
 
 ## Неделя 3 — атмосфера, деньги, релиз
 
-### T10 · DataService · **CX** · ⬜
+### T10 · DataService · **CX** · 🟦 PR #6 (ревью: можно мержить)
 Профиль `{Tenge, Stats = {Runs, Wins, Caught}, OwnedSkins}` в DataStore `Config.DATASTORE_NAME`.
 `UpdateAsync` + повторы при ошибке, сохранение при выходе и `BindToClose`, автосохранение раз в 2 мин.
 API для других сервисов: `AddTenge(player, amount)`, `GetProfile(player)`, `IncrementStat(player, name)`.
