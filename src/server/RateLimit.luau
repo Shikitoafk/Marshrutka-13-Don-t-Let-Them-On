@@ -29,7 +29,8 @@ end
 if game:GetService("RunService"):IsStudio() then
 	local allow = RateLimit.new(2)
 	local someone = {} :: any
-	assert(allow(someone) and allow(someone) and not allow(someone), "[RateLimit] самопроверка не прошла")
+	local first, second, third = allow(someone), allow(someone), allow(someone)
+	assert(first and second and not third, "[RateLimit] самопроверка не прошла")
 end
 
 return RateLimit
