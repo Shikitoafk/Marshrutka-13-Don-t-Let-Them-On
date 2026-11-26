@@ -34,7 +34,7 @@ function RoundService:Start()
 	end
 	-- Сиденья — только через Sit(): иначе задевший сиденье кондуктор сядет, а без прыжка уже не встанет.
 	for _, seat in bus:GetDescendants() do
-		if seat:IsA("Seat") or seat:IsA("VehicleSeat") then
+		if seat:IsA("BasePart") and (seat.ClassName == "Seat" or seat.ClassName == "VehicleSeat") then
 			seat.CanTouch = false
 		end
 	end
