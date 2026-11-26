@@ -77,6 +77,16 @@ local function label(parent: Instance, caption: string, position: UDim2, size: U
 	return gui
 end
 
+local function toolIcon(parent: TextButton, color: Color3, x: number, y: number, width: number, height: number): Frame
+	local frame = Instance.new("Frame")
+	frame.Position = UDim2.fromScale(x, y)
+	frame.Size = UDim2.fromScale(width, height)
+	frame.BackgroundColor3 = color
+	frame.BorderSizePixel = 0
+	frame.Parent = parent
+	return frame
+end
+
 local function overlay(screen: ScreenGui, name: string, depth: number, ratio: number, maxSize: Vector2): (Frame, Frame)
 	local shade = Instance.new("Frame")
 	shade.Name = name
@@ -152,13 +162,30 @@ function ConductorController:Start()
 
 	local toolbar = Instance.new("Frame")
 	toolbar.AnchorPoint = Vector2.new(1, 1)
-	toolbar.Position = UDim2.fromScale(0.97, 0.76)
-	toolbar.Size = UDim2.fromScale(0.50, 0.16)
+	toolbar.Position = UDim2.fromScale(0.97, 0.77)
+	toolbar.Size = UDim2.fromScale(0.32, 0.15)
 	toolbar.BackgroundTransparency = 1
-	constrain(toolbar, Vector2.new(236, 52), Vector2.new(365, 74))
+	constrain(toolbar, Vector2.new(114, 52), Vector2.new(146, 66))
 	toolbar.Parent = screen
-	local mirrorButton = button(toolbar, "OpenMirror", Strings.get("conductor.mirror"), UDim2.fromScale(0, 0), UDim2.fromScale(0.43, 1))
-	local lightButton = button(toolbar, "Flashlight", "", UDim2.fromScale(0.46, 0), UDim2.fromScale(0.54, 1))
+	local mirrorButton = button(toolbar, "OpenMirror", "", UDim2.fromScale(0, 0), UDim2.fromScale(0.46, 1))
+	local lightButton = button(toolbar, "Flashlight", "", UDim2.fromScale(0.54, 0), UDim2.fromScale(0.46, 1))
+	for _, control in { mirrorButton, lightButton } do
+		local corner = control:FindFirstChildOfClass("UICorner")
+		if corner then
+			corner.CornerRadius = UDim.new(0.5, 0)
+		end
+		local aspect = Instance.new("UIAspectRatioConstraint")
+		aspect.AspectRatio = 1
+		aspect.Parent = control
+	end
+	local glass = toolIcon(mirrorButton, TEXT, 0.22, 0.3, 0.56, 0.32)
+	corners(glass)
+	local reflection = toolIcon(mirrorButton, BUTTON, 0.32, 0.36, 0.28, 0.055)
+	reflection.Rotation = -15
+	toolIcon(mirrorButton, TEXT, 0.47, 0.59, 0.06, 0.11)
+	local lightLens = toolIcon(lightButton, TEXT, 0.32, 0.21, 0.36, 0.13)
+	local lightGrip = toolIcon(lightButton, TEXT, 0.42, 0.34, 0.16, 0.24)
+	local batteryLabel = label(lightButton, "", UDim2.fromScale(0.11, 0.61), UDim2.fromScale(0.78, 0.29))
 
 	local mirrorShade, mirrorPanel = overlay(screen, "CabinMirror", 2, 1.65, Vector2.new(610, 370))
 	label(mirrorPanel, Strings.get("conductor.rearview"), UDim2.fromScale(0.05, 0.03), UDim2.fromScale(0.9, 0.13))
@@ -240,9 +267,9 @@ function ConductorController:Start()
 	end
 
 	local function updateLightButton()
-		local text = Strings.get("conductor.flashlight", { seconds = math.ceil(battery) })
-		if lightButton.Text ~= text then
-			lightButton.Text = text
+		local text = tostring(math.ceil(battery))
+		if batteryLabel.Text ~= text then
+			batteryLabel.Text = text
 		end
 	end
 
@@ -251,7 +278,10 @@ function ConductorController:Start()
 		flashlight.setEnabled(lightOn)
 		table.clear(seenByFlashlight)
 		lightButton.BackgroundColor3 = if lightOn then AMBER else BUTTON
-		lightButton.TextColor3 = if lightOn then PANEL else TEXT
+		local color = if lightOn then PANEL else TEXT
+		lightLens.BackgroundColor3 = color
+		lightGrip.BackgroundColor3 = color
+		batteryLabel.TextColor3 = color
 		updateLightButton()
 	end
 
