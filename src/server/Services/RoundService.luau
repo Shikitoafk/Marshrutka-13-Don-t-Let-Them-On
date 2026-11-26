@@ -89,6 +89,10 @@ function RoundService:Start()
 		broadcast()
 		if not won then
 			route:StopRun() -- поражение посреди перегона: автобус плавно тормозит
+			local scares = registry.ScareEventService
+			if scares and #riders > 0 then
+				scares:Jumpscare() -- проигрыш = скример (GDD «Страх»)
+			end
 		else
 			for _, player in riders do
 				notify:FireClient(player, "notify.trip_finished", "Good")

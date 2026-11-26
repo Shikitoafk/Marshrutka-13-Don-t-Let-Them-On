@@ -133,6 +133,19 @@ function AnomalyService:GetHealth(): number
 	return health
 end
 
+-- Сколько аномалий сейчас в салоне (ScareEventService: больше пугалок, когда они рядом).
+function AnomalyService:CountAboard(): number
+	local passengers = registry.PassengerService
+	local aboard: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
+	local count = 0
+	for id in truth do
+		if aboard[id] then
+			count += 1
+		end
+	end
+	return count
+end
+
 -- PassengerService зовёт при посадке. true — аномалия (сама не выйдет).
 function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	earnedPlus += Config.FARE_PER_PASSENGER -- плату начисляет PassengerService, здесь только считаем для итогов
@@ -265,7 +278,12 @@ function AnomalyService:Start()
 		health = math.max(0, health - Config.ANOMALY_DAMAGE)
 		hits += 1
 		local effects = Config.ESCALATION_EFFECTS
-		escalated:FireAllClients(hits, effects[math.min(hits, #effects)])
+		local effect = effects[math.min(hits, #effects)]
+		escalated:FireAllClients(hits, effect)
+		local scares = registry.ScareEventService
+		if scares then
+			scares:OnEscalation(effect) -- Blackout → силуэт на заднем сиденье
+		end
 		log(`урон: прочность {health}`)
 		if health <= 0 then
 			onBroken()
