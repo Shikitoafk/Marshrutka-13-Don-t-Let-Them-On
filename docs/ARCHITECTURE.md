@@ -102,7 +102,7 @@ ServerStorage
 | `DoorsRequest` | `open: boolean` | Только Водитель, только при скорости ≈0 |
 | `HornRequest` | — | Только Водитель, кулдаун 1 сек |
 | `InspectPassenger` | `passengerId: string, tool: "Ticket" \| "Flashlight"` | Кондуктор, дистанция ≤ `INSPECT_RANGE`, кулдаун |
-| `EjectPassenger` | `passengerId: string` | Кондуктор, дистанция ≤ `INSPECT_RANGE`, двери открыты ИЛИ скорость ≈0 |
+| `EjectPassenger` | `passengerId: string` | Кондуктор, дистанция ≤ `INSPECT_RANGE`, кулдаун. **Можно в любой момент рейса**, в том числе на ходу (решение по PR #4: вычислил аномалию на перегоне — сразу выкинул) |
 | `LobbyReady` | `ready: boolean` | Игрок в лобби |
 
 ### Сервер → Клиент
@@ -150,6 +150,7 @@ ServerStorage
 ## Пассажиры
 
 - Каждая модель пассажира лежит в `Workspace.Map.Bus.Passengers` (или в зоне остановки, пока ждёт).
+  Папку `Passengers` создаёт `PassengerService`, если её нет (greybox её не делает). Клиент (зеркало, подсказки) ищет пассажиров именно там.
 - У каждой модели атрибут **`PassengerId`** (строка, `HttpService:GenerateGUID(false)`).
 - Атрибуты-подсказки из `AnomalyTypes.CueAttribute` ставит только `AnomalyService`.
 - **Правда «аномалия или нет» хранится только на сервере**, в таблице внутри `AnomalyService`.
