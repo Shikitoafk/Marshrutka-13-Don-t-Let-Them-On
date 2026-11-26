@@ -18,8 +18,8 @@ local DOOR_TWEEN = TweenInfo.new(0.6, Enum.EasingStyle.Quad)
 local DOOR_SLIDE_OUT = 0.4 -- открытая дверь отъезжает наружу, чтобы не входить в стену
 local DOOR_COOLDOWN = 0.7
 local BUS_STATE_INTERVAL = 0.2 -- BusState не чаще 5 раз/сек
--- shortcut: пока нет RoundService (T04), рейс стартует сам и на старте ждёт, пока игрок зайдёт; в T04 игроков будут сажать в автобус сразу.
-local TEST_BOARDING_TIME = 20
+local HORN_COOLDOWN = 1
+local START_DELAY = 3 -- сек после старта рейса: игроков сажают в автобус, пусть встанут на места
 
 type Stop = { index: number, name: string, from: number, center: number, to: number, served: boolean }
 type Door = { weld: Weld, closed: CFrame, open: CFrame }
@@ -29,6 +29,28 @@ local RouteService = {}
 local registry: { [string]: any } = {}
 local path: { Vector3 } = {}
 local along: { number } = {} -- along[i] — сколько studs по дороге от первой точки до i-й
+
+-- Управление рейсом для RoundService; настоящие функции появляются в :Start(), когда автобус найден.
+local startRun = function() end
+local resetRun = function() end
+local isFinished = function(): boolean
+	return false
+end
+
+-- Начать рейс с места, где стоит автобус (после ResetRun — с начала маршрута).
+function RouteService:StartRun()
+	startRun()
+end
+
+-- Вернуть автобус на старт для нового рейса. Только когда в салоне никого: автобус переносится телепортом.
+function RouteService:ResetRun()
+	resetRun()
+end
+
+-- Доехали до конечной?
+function RouteService:IsFinished(): boolean
+	return isFinished()
+end
 
 -- Точка на дороге в d studs от начала; за концами — продолжение крайнего отрезка.
 local function positionAt(d: number): Vector3
@@ -226,6 +248,29 @@ function RouteService:Start()
 		setDoors(open)
 	end)
 
+	-- Сигнал: только водитель, не чаще раза в секунду. Звук играет на сервере — слышат все.
+	local horn: Sound? = nil
+	if Config.SOUNDS.Horn ~= "rbxassetid://0" then -- пока ID не вписан, звука нет (и нет ошибки загрузки)
+		local sound = Instance.new("Sound")
+		sound.Name = "Horn"
+		sound.SoundId = Config.SOUNDS.Horn
+		sound.Parent = root
+		horn = sound
+	end
+	local lastHornAt = 0
+	Remotes.Event("HornRequest").OnServerEvent:Connect(function(player: Player)
+		if player ~= getDriver() or time() - lastHornAt < HORN_COOLDOWN then
+			return
+		end
+		lastHornAt = time()
+		if horn then
+			horn:Play()
+		end
+		if RunService:IsStudio() then
+			print("[Route] Сигнал")
+		end
+	end)
+
 	local sinceBusState, sinceLog = 0, 0
 	RunService.Heartbeat:Connect(function(dt: number)
 		sinceBusState += dt
@@ -291,16 +336,24 @@ function RouteService:Start()
 		end
 	end)
 
-	-- shortcut: до RoundService (T04) рейс начинается, как только появился первый игрок.
-	local player = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
-	if not player.Character then
-		player.CharacterAdded:Wait()
+	startRun = function()
+		running, finished = true, false
+		departAt = time() + START_DELAY
+		announce(stops[1], "Approaching")
 	end
-	running = true
-	setDoors(true)
-	dwellUntil = time() + TEST_BOARDING_TIME
-	announce(stops[1], "Approaching")
-	print(`[RouteService] Рейс начался: {#stops} остановок, двери открыты {TEST_BOARDING_TIME} сек — заходи в автобус`)
+	resetRun = function()
+		running, finished = false, false
+		distance, speed, throttle, nextStop = 0, 0, 0, 1
+		lastStop = nil
+		for _, s in stops do
+			s.served = false
+		end
+		setDoors(false)
+		bus:PivotTo(poseAt(0))
+	end
+	isFinished = function(): boolean
+		return finished
+	end
 end
 
 return RouteService
