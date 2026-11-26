@@ -30,17 +30,21 @@ local function roundCorners(gui: GuiObject, radius: number)
 	corner.Parent = gui
 end
 
-local function styleText(gui: TextLabel | TextButton, maxTextSize: number)
+local function limitText(gui: GuiObject, maxTextSize: number)
+	local limit = Instance.new("UITextSizeConstraint")
+	limit.MinTextSize = 15
+	limit.MaxTextSize = maxTextSize
+	limit.Parent = gui
+end
+
+local function styleText(gui: TextLabel, maxTextSize: number)
 	gui.BackgroundTransparency = 1
 	gui.TextColor3 = TEXT_COLOR
 	gui.Font = Enum.Font.GothamMedium
 	gui.TextScaled = true
 	gui.TextTruncate = Enum.TextTruncate.AtEnd
 
-	local limit = Instance.new("UITextSizeConstraint")
-	limit.MinTextSize = 15
-	limit.MaxTextSize = maxTextSize
-	limit.Parent = gui
+	limitText(gui, maxTextSize)
 end
 
 local function makeRow(parent: ScrollingFrame, player: Player, order: number, ready: boolean): Frame
@@ -146,9 +150,11 @@ function LobbyController:Start()
 	readyButton.AnchorPoint = Vector2.new(0, 1)
 	readyButton.Position = UDim2.fromScale(0.06, 0.94)
 	readyButton.Size = UDim2.fromScale(0.88, 0.18)
-	styleText(readyButton, 23)
+	limitText(readyButton, 23)
 	readyButton.BackgroundTransparency = 0
 	readyButton.Font = Enum.Font.GothamBold
+	readyButton.TextScaled = true
+	readyButton.TextTruncate = Enum.TextTruncate.AtEnd
 	readyButton.BorderSizePixel = 0
 	roundCorners(readyButton, 10)
 	local buttonSize = Instance.new("UISizeConstraint")

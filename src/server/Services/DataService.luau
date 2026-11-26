@@ -10,6 +10,7 @@ local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AUTOSAVE_INTERVAL = 2 * 60
+local LOAD_RETRY_INTERVAL = 30
 local LEASE_DURATION = 3 * AUTOSAVE_INTERVAL
 local MAX_ATTEMPTS = 4
 local SHUTDOWN_TIMEOUT = 29 -- Roblox даёт серверу 30 секунд.
@@ -29,6 +30,7 @@ type Session = {
 	profile: Profile?,
 	expiresAt: number,
 	loading: boolean,
+	recovering: boolean,
 	saving: boolean,
 	closing: boolean,
 	changed: BindableEvent,
@@ -44,6 +46,7 @@ local sessions: { [Player]: Session } = {}
 local departed: { [Player]: boolean } = {}
 setmetatable(departed, { __mode = "k" })
 local shuttingDown = false
+local monetization: { HasVIP: (any, Player) -> boolean }? = nil
 
 local function asInteger(value: any): number?
 	if type(value) == "number" and math.abs(value) <= MAX_SAFE_INTEGER and value % 1 == 0 then
@@ -148,7 +151,7 @@ end
 
 local function notifyUnavailable(session: Session)
 	if not session.closing and session.player.Parent == Players then
-		notify:FireClient(session.player, "Баланс временно недоступен. Попробуй войти снова.", "Warn")
+		notify:FireClient(session.player, "Баланс временно недоступен.", "Warn")
 	end
 end
 
@@ -174,9 +177,22 @@ local function loadSession(session: Session)
 		session.expiresAt = expiresAt
 		if not session.closing and session.player.Parent == Players then
 			publishTenge(session.player, profile.Tenge)
+			if session.recovering then
+				notify:FireClient(session.player, "Баланс снова доступен.", "Good")
+			end
 		end
-	else
-		notifyUnavailable(session)
+		session.recovering = false
+	elseif not session.closing and not shuttingDown and session.player.Parent == Players then
+		if not session.recovering then
+			notifyUnavailable(session)
+			session.recovering = true
+		end
+		task.delay(LOAD_RETRY_INTERVAL, function()
+			if not shuttingDown and not session.closing and sessions[session.player] == session and session.player.Parent == Players then
+				session.loading = true
+				loadSession(session)
+			end
+		end)
 	end
 	session.loading = false
 	session.changed:Fire()
@@ -197,6 +213,7 @@ local function openSession(player: Player): Session?
 		profile = nil,
 		expiresAt = 0,
 		loading = true,
+		recovering = false,
 		saving = false,
 		closing = false,
 		changed = Instance.new("BindableEvent"),
@@ -290,7 +307,9 @@ function DataService:AddTenge(player: Player, amount: number): boolean
 	if not profile then
 		return false
 	end
-	local balance = asInteger(profile.Tenge + amount)
+	local passes = monetization
+	local multiplier = if amount > 0 and passes and passes:HasVIP(player) then 2 else 1
+	local balance = asInteger(profile.Tenge + amount * multiplier)
 	if balance == nil then
 		return false
 	end
@@ -317,7 +336,8 @@ function DataService:IncrementStat(player: Player, name: string): boolean
 	return true
 end
 
-function DataService:Init(_services: { [string]: any })
+function DataService:Init(services: { [string]: any })
+	monetization = services.MonetizationService
 	Remotes.Function("GetProfile").OnServerInvoke = function(player)
 		return self:GetProfile(player)
 	end
