@@ -20,6 +20,9 @@ local AnomalyService = {}
 local registry: { [string]: any } = {}
 local truth: { [string]: AnomalyType } = {} -- [PassengerId] = тип; только аномалии в салоне
 local tickets: { [string]: { [string]: string } } = {} -- [PassengerId] = {Route, Date}
+local boardedAt: { [string]: number } = {} -- [PassengerId аномалии] = остановка посадки: бьёт с отъезда от следующей
+local twinOf: { [string]: string } = {} -- [PassengerId двойника] = PassengerId оригинала
+local atStop = 0 -- на какой остановке стоим (для boardedAt)
 local health = Config.BUS_MAX_HEALTH
 local hits = 0 -- сколько раз автобус получил урон за рейс (уровень эскалации)
 local amuletTried = false
@@ -39,9 +42,10 @@ local function riders(): { Player }
 	return if round then round:GetRiders() else {}
 end
 
-local function notifyRiders(text: string, kind: string)
+-- Notify — ключ и параметры (ARCHITECTURE, «Сообщения Notify»), текст подставит клиент.
+local function notifyRiders(key: string, kind: string, params: { [string]: any }?)
 	for _, player in riders() do
-		notify:FireClient(player, text, kind)
+		notify:FireClient(player, key, kind, params)
 	end
 end
 
@@ -135,11 +139,13 @@ function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	local originalId, original = next(others)
 	local kind = pickType(originalId ~= nil)
 	truth[id] = kind
+	boardedAt[id] = atStop
 	if kind.CueAttribute then
 		model:SetAttribute(kind.CueAttribute, if kind.Id == "Twin" then originalId else true)
 	end
-	if kind.Id == "Twin" and original then
+	if kind.Id == "Twin" and originalId and original then
 		copyLook(original, model)
+		twinOf[id] = originalId
 		passengers:KeepAboard(originalId) -- оригинал не выйдет, иначе двойника нечем вычислить
 	elseif kind.Id == "WrongHead" then
 		turnHead(model)
@@ -194,6 +200,9 @@ function AnomalyService:Start()
 	local function resetRun()
 		table.clear(truth)
 		table.clear(tickets)
+		table.clear(boardedAt)
+		table.clear(twinOf)
+		atStop = 0
 		health, hits, amuletTried = Config.BUS_MAX_HEALTH, 0, false
 		caught, mistakes, stopsReached = 0, 0, 0
 		earnedPlus, earnedMinus = 0, 0
@@ -214,7 +223,7 @@ function AnomalyService:Start()
 			for _, player in riders() do
 				if shop and shop:ConsumeAmulet(player) then
 					health = Config.AMULET_RESTORE_HEALTH
-					notifyRiders(`Оберег {player.Name} спас маршрутку!`, "Good")
+					notifyRiders("notify.amulet_saved", "Good", { player = player.DisplayName })
 					return
 				end
 			end
@@ -242,14 +251,18 @@ function AnomalyService:Start()
 		if phase == "Approaching" and index == 1 then
 			resetRun() -- новый рейс
 		end
+		if phase == "AtStop" then
+			atStop = index
+		end
 		if phase == "AtStop" or phase == "Departed" then
 			stopsReached = math.max(stopsReached, index)
 		end
 		if phase == "Departed" then
 			local aboard = passengers:GetOnboard()
 			for id in truth do
-				if aboard[id] then
-					damage() -- аномалия проехала остановку
+				-- севшая на этой же остановке ещё не бьёт: у кондукторов должен быть целый перегон
+				if aboard[id] and (boardedAt[id] or 0) < index then
+					damage()
 				end
 			end
 		end
@@ -302,11 +315,31 @@ function AnomalyService:Start()
 		local kind = truth[passengerId]
 		truth[passengerId] = nil
 		tickets[passengerId] = nil
+		-- Двойник: высадка любого из пары — поимка, оставшийся снова обычный пассажир.
+		local partner: string? = twinOf[passengerId]
+		if not kind then
+			for twinId, originalId in twinOf do
+				if originalId == passengerId then
+					partner, kind = twinId, truth[twinId]
+				end
+			end
+		end
+		if partner then
+			twinOf[passengerId] = nil
+			twinOf[partner] = nil
+			truth[partner] = nil
+			boardedAt[partner] = nil
+			local remaining = passengers:GetModel(partner)
+			if remaining then
+				remaining:SetAttribute("TwinOf", nil)
+			end
+			passengers:ReleaseAboard(partner)
+		end
 		if kind then
 			caught += 1
 			earnedPlus += Config.CATCH_REWARD
 			payRiders(Config.CATCH_REWARD)
-			notifyRiders(`Аномалия высажена: {kind.Name}! +{Config.CATCH_REWARD} ₸`, "Good")
+			notifyRiders("notify.anomaly_ejected", "Good", { anomalyId = kind.Id, reward = Config.CATCH_REWARD })
 			local data = registry.DataService
 			if data then
 				task.spawn(data.IncrementStat, data, player, "Caught")
@@ -315,7 +348,7 @@ function AnomalyService:Start()
 			mistakes += 1
 			earnedMinus -= Config.WRONG_EJECT_PENALTY
 			payRiders(-Config.WRONG_EJECT_PENALTY)
-			notifyRiders(`Это был человек… −{Config.WRONG_EJECT_PENALTY} ₸`, "Bad")
+			notifyRiders("notify.human_ejected", "Bad", { penalty = Config.WRONG_EJECT_PENALTY })
 		end
 		log(`высадили: {if kind then kind.Name else "человек"}`)
 	end)

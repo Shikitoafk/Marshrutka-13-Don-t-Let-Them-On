@@ -87,6 +87,10 @@ function RoundService:Start()
 		broadcast()
 		if not won then
 			route:StopRun() -- поражение посреди перегона: автобус плавно тормозит
+		else
+			for _, player in riders do
+				notify:FireClient(player, "notify.trip_finished", "Good")
+			end
 		end
 		local anomalies = registry.AnomalyService
 		if anomalies then
@@ -138,7 +142,7 @@ function RoundService:Start()
 					character:PivotTo(aisle(slot))
 					body.AssemblyLinearVelocity = root.AssemblyLinearVelocity -- иначе в едущем автобусе сразу снесёт назад
 					if boarded[player] then
-						notify:FireClient(player, "Ты отстал от маршрутки — вернули в салон", "Warn")
+						notify:FireClient(player, "notify.returned_to_bus", "Warn")
 					end
 				end
 				boarded[player] = true

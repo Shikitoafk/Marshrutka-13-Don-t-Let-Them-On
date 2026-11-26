@@ -21,7 +21,7 @@ local DOOR_STEP_OUT = 2 -- studs от двери наружу: куда подх
 local SKIN = { Color3.fromRGB(234, 192, 158), Color3.fromRGB(198, 145, 105), Color3.fromRGB(141, 95, 64), Color3.fromRGB(255, 220, 190) }
 local CLOTHES = { Color3.fromRGB(60, 70, 90), Color3.fromRGB(120, 40, 40), Color3.fromRGB(70, 90, 60), Color3.fromRGB(90, 90, 90), Color3.fromRGB(150, 120, 60), Color3.fromRGB(40, 40, 45) }
 
-type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, seat: Seat? }
+type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, keptExit: number?, seat: Seat? }
 
 local PassengerService = {}
 
@@ -108,11 +108,21 @@ function PassengerService:GetOnboard(): { [string]: Model }
 	return result
 end
 
--- Не выпускать на его остановке (оригинал двойника: без него двойника не вычислить).
+-- Не выпускать на его остановке (аномалия; оригинал двойника — без него двойника не вычислить).
 function PassengerService:KeepAboard(id: string)
 	local p = onboard[id]
-	if p then
+	if p and not p.keptExit then
+		p.keptExit = p.exitStop
 		p.exitStop = math.huge
+	end
+end
+
+-- Снова обычный пассажир: выйдет на своей остановке (или при следующем открытии дверей, если её уже проехали).
+function PassengerService:ReleaseAboard(id: string)
+	local p = onboard[id]
+	if p and p.keptExit then
+		p.exitStop = p.keptExit
+		p.keptExit = nil
 	end
 end
 
@@ -232,7 +242,7 @@ function PassengerService:Start()
 		model.Parent = zone
 		pcall(body.SetNetworkOwner, body, nil) -- ходит сервер, а не ближайший игрок
 		waiting[stop] = waiting[stop] or {}
-		table.insert(waiting[stop], { id = id, model = model, humanoid = humanoid, exitStop = math.random(stop + 1, lastStop), seat = nil })
+		table.insert(waiting[stop], { id = id, model = model, humanoid = humanoid, exitStop = math.random(stop + 1, lastStop), keptExit = nil, seat = nil })
 	end
 
 	local function board(p: Passenger, stop: number)
@@ -264,7 +274,7 @@ function PassengerService:Start()
 			-- Аномалия сама не выходит: едет, пока её не высадят.
 			local anomalies = registry.AnomalyService
 			if anomalies and anomalies:OnBoarded(p.id, p.model) then
-				p.exitStop = math.huge
+				PassengerService:KeepAboard(p.id)
 			end
 			passengerBoarded:FireAllClients(p.id)
 			payFare()
