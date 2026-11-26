@@ -108,6 +108,14 @@ function PassengerService:GetOnboard(): { [string]: Model }
 	return result
 end
 
+-- Не выпускать на его остановке (оригинал двойника: без него двойника не вычислить).
+function PassengerService:KeepAboard(id: string)
+	local p = onboard[id]
+	if p then
+		p.exitStop = math.huge
+	end
+end
+
 -- Высадить (кондуктор): вылетает за дверь, PassengerLeft("Ejected"). false — такого в салоне нет.
 local ejectNow = function(_id: string): boolean
 	return false

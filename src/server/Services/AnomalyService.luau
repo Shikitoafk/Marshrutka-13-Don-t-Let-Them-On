@@ -140,6 +140,7 @@ function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	end
 	if kind.Id == "Twin" and original then
 		copyLook(original, model)
+		passengers:KeepAboard(originalId) -- оригинал не выйдет, иначе двойника нечем вычислить
 	elseif kind.Id == "WrongHead" then
 		turnHead(model)
 	elseif kind.Id == "WrongTicket" then
@@ -186,7 +187,9 @@ function AnomalyService:Start()
 	end
 	local escalated = Remotes.Event("AnomalyEscalated")
 	local inspectResult = Remotes.Event("InspectResult")
-	local lastActionAt: { [Player]: number } = {}
+	-- Раздельные кулдауны: «проверил билет → сразу высадил» не должно теряться из-за задержки сети.
+	local lastInspectAt: { [Player]: number } = {}
+	local lastEjectAt: { [Player]: number } = {}
 
 	local function resetRun()
 		table.clear(truth)
@@ -268,19 +271,19 @@ function AnomalyService:Start()
 		return if (a.Position - b.Position).Magnitude <= Config.INSPECT_RANGE then model else nil
 	end
 
-	local function allowed(player: Player, id: unknown): boolean
-		if type(id) ~= "string" or #id > MAX_ID_LENGTH or time() - (lastActionAt[player] or 0) < Config.INSPECT_COOLDOWN then
+	local function allowed(player: Player, id: unknown, last: { [Player]: number }): boolean
+		if type(id) ~= "string" or #id > MAX_ID_LENGTH or time() - (last[player] or 0) < Config.INSPECT_COOLDOWN then
 			return false
 		end
 		if not conductorNear(player, id) then
 			return false
 		end
-		lastActionAt[player] = time()
+		last[player] = time()
 		return true
 	end
 
 	Remotes.Event("InspectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown, tool: unknown)
-		if (tool ~= "Ticket" and tool ~= "Flashlight") or not allowed(player, id) then
+		if (tool ~= "Ticket" and tool ~= "Flashlight") or not allowed(player, id, lastInspectAt) then
 			return
 		end
 		local passengerId = id :: string
@@ -289,7 +292,7 @@ function AnomalyService:Start()
 	end)
 
 	Remotes.Event("EjectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown)
-		if not allowed(player, id) then
+		if not allowed(player, id, lastEjectAt) then
 			return
 		end
 		local passengerId = id :: string
