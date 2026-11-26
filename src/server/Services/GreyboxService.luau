@@ -65,8 +65,8 @@ local function ghost(p: BasePart)
 	p.CanTouch = false
 end
 
+-- Без материала Glass: сквозь него Roblox не рисует прозрачное (зоны остановок пропали бы из вида).
 local function glass(p: BasePart, transparency: number)
-	p.Material = Enum.Material.Glass
 	p.Transparency = transparency
 end
 
@@ -196,6 +196,10 @@ function GreyboxService:Init(_services: { [string]: any })
 
 	local route = folder(map, "Route")
 	local road = folder(map, "Road")
+	-- асфальт и позади первой точки, где на старте стоит хвост автобуса
+	local behind = points[1] + (points[1] - points[2]).Unit * 40
+	local tail = make("Part", road, "Road", Vector3.new(ROAD_WIDTH, 0.4, 43), CFrame.lookAt((behind + points[1]) / 2, points[1]) * CFrame.new(0, -0.25, 0), ASPHALT)
+	tail.Material = Enum.Material.Asphalt
 	for i, p in points do
 		ghost(make("Part", route, string.format("%03d", i), Vector3.one, CFrame.new(p), Color3.new(1, 0, 0)))
 		local nextPoint = points[i + 1]
