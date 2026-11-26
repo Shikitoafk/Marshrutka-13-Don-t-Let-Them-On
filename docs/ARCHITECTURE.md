@@ -107,8 +107,28 @@ ServerStorage
 | `InspectResult` | `passengerId, tool, data` — для билета: `{Route: string, Date: string}`, для фонарика: `{}` (подсказка видна через атрибуты) |
 | `AnomalyEscalated` | `level: number, effect: string` (эффекты из `Config.ESCALATION_EFFECTS`) |
 | `RunEnded` | `summary: {Won: boolean, Tenge: number, Caught: number, Mistakes: number, StopsReached: number}` |
-| `CurrencyChanged` | `tenge: number` |
+| `CurrencyChanged` | `tenge: number` — **общий баланс** игрока (не заработок за рейс). Сервер шлёт при входе игрока и при каждом изменении |
 | `Notify` | `text: string, kind: "Info" \| "Warn" \| "Good" \| "Bad"` |
+
+### Поля `RoundState.data` (договорились по PR #2)
+
+| Состояние | Поля `data` |
+|---|---|
+| `Lobby` | `Ready: {[tostring(UserId)]: true}` — кто сейчас готов |
+| `Countdown` | `Ready` (как выше) + `CountdownEndsAt: number` = `workspace:GetServerTimeNow() + Config.LOBBY_COUNTDOWN` |
+| `Running` | `{}` |
+| `Results` | `{}` (итоги приходят отдельно в `RunEnded`) |
+
+Правила для `RoundService`:
+- Новому игроку при входе сразу отправить текущий `RoundState` (снимок), а если рейс идёт — и его `RoleAssigned`.
+- При каждом изменении готовности слать `RoundState` всем, даже если само состояние не сменилось.
+- Порядок при старте рейса: `RoleAssigned` каждому → затем `RoundState("Running")`.
+
+### Водитель и кнопка прыжка
+
+На телефоне кнопка прыжка выкидывает игрока с сиденья. Пока игрок — водитель в рейсе,
+`RoleService`/`RouteService` на сервере держит его на `DriverSeat` (`Seat.Disabled = false`,
+у Humanoid `JumpPower = 0` / `JumpHeight = 0`, вернуть после рейса).
 
 ### RemoteFunction
 
