@@ -8,7 +8,9 @@ local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 
+local READY_RATE = 5 -- LobbyReady в секунду на игрока: сверх — отбрасываем до проверок
 local LEFT_BEHIND_DISTANCE = 25 -- studs от центра автобуса: дальше — игрок отстал, возвращаем в салон
 local CHECK_INTERVAL = 0.5
 local READY_COOLDOWN = 0.3 -- от спама «Готов» (каждое нажатие рассылается всем)
@@ -186,8 +188,9 @@ function RoundService:Start()
 		end)
 	end
 
+	local allowReady = RateLimit.new(READY_RATE)
 	Remotes.Event("LobbyReady").OnServerEvent:Connect(function(player: Player, isReady: unknown)
-		if (state ~= "Lobby" and state ~= "Countdown") or type(isReady) ~= "boolean" or time() - (lastReadyAt[player] or 0) < READY_COOLDOWN then
+		if not allowReady(player) or (state ~= "Lobby" and state ~= "Countdown") or type(isReady) ~= "boolean" or time() - (lastReadyAt[player] or 0) < READY_COOLDOWN then
 			return
 		end
 		lastReadyAt[player] = time()
