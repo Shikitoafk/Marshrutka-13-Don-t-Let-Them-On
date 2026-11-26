@@ -35,6 +35,7 @@ local EVENTS = {
 	"AnomalyEscalated", -- (level: number, effect: string)
 	"RunEnded", -- (summary: {[string]: any})
 	"CurrencyChanged", -- (tenge: number)
+	"ScareEvent", -- (name: string, data: {[string]: any}) — пугалка, клиент показывает эффект (см. ARCHITECTURE)
 	"Notify", -- (key: string, kind: "Info" | "Warn" | "Good" | "Bad", params: {[string]: any}?) — ключ из Strings.luau
 }
 

@@ -122,6 +122,7 @@ ServerStorage
 | `AnomalyEscalated` | `level: number, effect: string` (эффекты из `Config.ESCALATION_EFFECTS`) |
 | `RunEnded` | `summary: {Won: boolean, Tenge: number, Caught: number, Mistakes: number, StopsReached: number}` |
 | `CurrencyChanged` | `tenge: number` — **общий баланс** игрока (не заработок за рейс). Сервер шлёт при входе игрока и при каждом изменении |
+| `ScareEvent` | `name: string, data: table` — пугалка; список событий ниже, раздел «Пугалки» |
 | `Notify` | `key: string, kind: "Info" \| "Warn" \| "Good" \| "Bad", params: {[string]: string\|number\|boolean}?` — **ключ** строки из `Strings.luau`, клиент переводит (см. ниже) |
 
 ### Поля `RoundState.data` (договорились по PR #2)
@@ -182,6 +183,7 @@ ServerStorage
 | `notify.balance_unavailable`, `notify.balance_restored`, `notify.amulet_added` | DataService / MonetizationService | — |
 
 Новый ключ = строка в `Strings.luau` (CX) + строка в этой таблице (оркестратор).
+Аномалия `NoShadow` по смыслу теперь «Призрак» (под фонарём просвечивает) — обновить `anomaly.NoShadow.*` в Strings.
 
 ## Правила аномалий (решения по PR #13)
 
@@ -190,6 +192,21 @@ ServerStorage
 - **Двойник:** высадка **любого** из пары засчитывается как поимка; оставшийся становится обычным пассажиром
   (снять `TwinOf`, убрать из `truth`, вернуть обычный `exitStop`).
 - **Билет:** правило для игрока — «маршрут №13 и текущий год». Дата сервера может отличаться от даты игрока на день, поэтому день и месяц не важны.
+
+## Пугалки `ScareEvent` (решение после плейтеста 1)
+
+Сервер решает **когда** (T18, `ScareEventService`), клиент решает **как выглядит** (T19, `HorrorController`).
+Ни одна пугалка не выдаёт, кто аномалия — это атмосфера, а не подсказка.
+
+| `name` | `data` | Что видит/слышит игрок |
+|---|---|---|
+| `WindowKnock` | `{Side: "Left" \| "Right", Z: number}` | стук + отпечатки ладоней на стекле в точке Z (координата вдоль автобуса), исчезают через 10 сек |
+| `RoofBang` | `{}` | тяжёлый удар по крыше, тряска камеры, лампы качнулись |
+| `FigureOnRoad` | `{Distance: number}` | тёмный силуэт стоит на дороге в тумане впереди, исчезает, когда автобус близко |
+| `BackSeatFigure` | `{Duration: number}` | силуэт на заднем сиденье, пока выключен свет (вместе с `Blackout`) |
+| `PhoneRing` | `{Seat: string}` | под сиденьем звонит телефон 4 сек |
+| `Stare` | `{Duration: number}` | все пассажиры одновременно поворачивают головы к камере игрока (у каждого клиента — к своей) |
+| `Jumpscare` | `{}` | при поражении: экран-скример на 1.5 сек + крик |
 
 ## Звуки: кто что играет (решение по PR #9/#10)
 

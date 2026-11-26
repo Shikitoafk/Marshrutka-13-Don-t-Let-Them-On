@@ -70,7 +70,18 @@ local Config = {
 		Whispers = "rbxassetid://0",
 		Ambience = "rbxassetid://0",
 		Jumpscare = "rbxassetid://0",
+		Knock = "rbxassetid://0", -- стук в окно
+		Bang = "rbxassetid://0", -- удар по крыше
+		Heartbeat = "rbxassetid://0", -- сердцебиение при низкой прочности (loop)
+		PhoneRing = "rbxassetid://0", -- телефон звонит под сиденьем
+		StopChime = "rbxassetid://0", -- «динь» перед объявлением остановки
+		Music = "rbxassetid://0", -- тихая жуткая музыка в рейсе (loop)
 	},
+
+	-- Пугалки (ScareEventService): сколько событий на перегон
+	SCARES_PER_LEG_MIN = 1,
+	SCARES_PER_LEG_MAX = 2,
+	SCARE_EXTRA_PER_ANOMALY = 1, -- +событие за каждую аномалию в салоне
 
 	-- DataStore
 	DATASTORE_NAME = "PlayerData_v1",

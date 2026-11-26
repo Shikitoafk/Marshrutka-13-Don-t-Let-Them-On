@@ -39,9 +39,9 @@ local AnomalyTypes: { AnomalyType } = {
 		Weight = 3,
 	},
 	{
-		Id = "NoShadow",
-		Name = "Без тени",
-		Hint = "Посвети фонариком: у людей есть тень.",
+		Id = "NoShadow", -- Id и CueAttribute оставлены старыми, чтобы не ломать код; по смыслу это «Призрак»
+		Name = "Призрак",
+		Hint = "Посвети фонариком: сквозь некоторых пассажиров просвечивает.",
 		Detect = "Flashlight",
 		CueAttribute = "NoShadow",
 		Weight = 2,
