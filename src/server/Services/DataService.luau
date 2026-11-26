@@ -137,10 +137,10 @@ local function publishTenge(player: Player, tenge: number)
 		leaderstats.Parent = player
 		folder = leaderstats
 	end
-	local stat = folder:FindFirstChild("Тенге")
+	local stat = folder:FindFirstChild("₸")
 	if not stat then
 		local balance = Instance.new("IntValue")
-		balance.Name = "Тенге"
+		balance.Name = "₸"
 		balance.Value = tenge
 		balance.Parent = folder
 	elseif stat:IsA("IntValue") then
@@ -151,7 +151,7 @@ end
 
 local function notifyUnavailable(session: Session)
 	if not session.closing and session.player.Parent == Players then
-		notify:FireClient(session.player, "Баланс временно недоступен.", "Warn")
+		notify:FireClient(session.player, "notify.balance_unavailable", "Warn")
 	end
 end
 
@@ -178,7 +178,7 @@ local function loadSession(session: Session)
 		if not session.closing and session.player.Parent == Players then
 			publishTenge(session.player, profile.Tenge)
 			if session.recovering then
-				notify:FireClient(session.player, "Баланс снова доступен.", "Good")
+				notify:FireClient(session.player, "notify.balance_restored", "Good")
 			end
 		end
 		session.recovering = false

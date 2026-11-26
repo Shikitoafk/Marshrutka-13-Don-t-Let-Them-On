@@ -9,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local ShopController = {}
 
@@ -20,9 +21,9 @@ local AMBER = Color3.fromRGB(246, 198, 110)
 
 type Offer = { name: string, benefit: string, id: number, pass: boolean, attribute: string? }
 local OFFERS: { Offer } = {
-	{ name = "VIP-маршрутка", benefit = "Скин и ×2 тенге", id = Config.GAMEPASS_VIP, pass = true, attribute = "VIPBusSkin" },
-	{ name = "Радио", benefit = "Музыка в салоне", id = Config.GAMEPASS_RADIO, pass = true, attribute = "HasRadio" },
-	{ name = "Оберег", benefit = `Спасает автобус, +{Config.AMULET_RESTORE_HEALTH} прочности`, id = Config.PRODUCT_AMULET, pass = false },
+	{ name = Strings.get("shop.vip"), benefit = Strings.get("shop.vip_benefit"), id = Config.GAMEPASS_VIP, pass = true, attribute = "VIPBusSkin" },
+	{ name = Strings.get("shop.radio"), benefit = Strings.get("shop.radio_benefit"), id = Config.GAMEPASS_RADIO, pass = true, attribute = "HasRadio" },
+	{ name = Strings.get("shop.amulet"), benefit = Strings.get("shop.amulet_benefit", { health = Config.AMULET_RESTORE_HEALTH }), id = Config.PRODUCT_AMULET, pass = false },
 }
 
 local function roundCorners(gui: GuiObject)
@@ -92,13 +93,14 @@ function ShopController:Start()
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = "DepotShop"
 	screen.DisplayOrder = 4
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 	screen.ResetOnSpawn = false
 	screen.Parent = playerGui
 
-	local open = button(screen, "Магазин", UDim2.fromScale(0.97, 0.035), UDim2.fromScale(0.3, 0.13))
+	local open = button(screen, Strings.get("shop.title"), UDim2.fromScale(0.97, 0.035), UDim2.fromScale(0.3, 0.13))
 	open.Name = "OpenShop"
 	open.AnchorPoint = Vector2.new(1, 0)
 	clampSize(open, Vector2.new(106, 48), Vector2.new(174, 60))
@@ -127,9 +129,9 @@ function ShopController:Start()
 	aspect.Parent = panel
 	panel.Parent = shade
 
-	local title = label(panel, "Магазин", UDim2.fromScale(0.055, 0.025), UDim2.fromScale(0.89, 0.12), 19, 29)
+	local title = label(panel, Strings.get("shop.title"), UDim2.fromScale(0.055, 0.025), UDim2.fromScale(0.89, 0.12), 19, 29)
 	title.Font = Enum.Font.GothamBold
-	local close = button(panel, "Закрыть", UDim2.fromScale(0.7, 0.97), UDim2.fromScale(0.25, 0.16))
+	local close = button(panel, Strings.get("ui.close"), UDim2.fromScale(0.7, 0.97), UDim2.fromScale(0.25, 0.16))
 	close.Name = "CloseShop"
 	close.AnchorPoint = Vector2.new(0, 1)
 	clampSize(close, Vector2.new(0, 46), Vector2.new(math.huge, math.huge))
@@ -146,15 +148,15 @@ function ShopController:Start()
 			local owned = attribute ~= nil and player:GetAttribute(attribute) == true
 			local enabled = offer.id > 0 and pending == nil and (not owned or attribute == "HasRadio")
 			if offer.id <= 0 then
-				action.Text = "Недоступно"
+				action.Text = Strings.get("shop.unavailable")
 			elseif owned and attribute == "HasRadio" then
-				action.Text = if radioSound and radioSound.Parent then "Выключить" else "Включить"
+				action.Text = Strings.get(if radioSound and radioSound.Parent then "shop.turn_off" else "shop.turn_on")
 			elseif owned then
-				action.Text = "Куплено"
+				action.Text = Strings.get("shop.owned")
 			elseif pending == offer then
-				action.Text = "Покупка…"
+				action.Text = Strings.get("shop.purchasing")
 			else
-				action.Text = "Купить"
+				action.Text = Strings.get("shop.buy")
 			end
 			action.Interactable = enabled
 			action.BackgroundColor3 = if enabled then AMBER else PANEL
@@ -171,12 +173,12 @@ function ShopController:Start()
 		end
 		local source, busRoot = findRadio()
 		if not source then
-			status.Text = "Музыка для радио ещё не настроена."
+			status.Text = Strings.get("shop.music_missing")
 			return
 		end
 		local copy = source:Clone()
 		if not copy then
-			status.Text = "Радио сейчас недоступно."
+			status.Text = Strings.get("shop.radio_unavailable")
 			return
 		end
 		copy.Name = "LocalPersonalRadio"
@@ -210,7 +212,7 @@ function ShopController:Start()
 		end)
 		if not ok then
 			pending = nil
-			status.Text = "Не удалось открыть покупку."
+			status.Text = Strings.get("shop.purchase_failed")
 			refreshOffers()
 		end
 	end
