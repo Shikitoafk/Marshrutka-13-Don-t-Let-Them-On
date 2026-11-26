@@ -148,13 +148,14 @@ local function buildBus(pivot: CFrame): Model
 	-- Свет сам по себе в папке не светит, поэтому каждый PointLight — внутри плафона.
 	local lights = folder(bus, "InteriorLights")
 	for i, z in { -10, 0, 10 } do
+		-- Тусклый свет (GDD «Страх»: темно, фонарь реально нужен): плафон без неонового свечения, лампа слабая.
 		local lamp = make("Part", lights, `Lamp{i}`, Vector3.new(2, 0.2, 1.5), at(0, roofY - 0.1, z), WARM)
-		lamp.Material = Enum.Material.Neon
+		lamp.Material = Enum.Material.SmoothPlastic
 		lamp.CanCollide = false
 		local light = Instance.new("PointLight")
 		light.Color = WARM
-		light.Range = 14
-		light.Brightness = 1.5
+		light.Range = 12
+		light.Brightness = 0.5
 		light.Shadows = false
 		light.Parent = lamp
 	end
