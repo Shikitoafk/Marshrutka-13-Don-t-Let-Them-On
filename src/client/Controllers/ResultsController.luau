@@ -42,11 +42,7 @@ local function constrain(gui: GuiObject, minSize: Vector2, maxSize: Vector2)
 	limit.Parent = gui
 end
 
-local function styleText(gui: TextLabel | TextButton, maxSize: number)
-	gui.TextColor3 = TEXT
-	gui.Font = Enum.Font.GothamBold
-	gui.TextScaled = true
-	gui.TextTruncate = Enum.TextTruncate.AtEnd
+local function limitText(gui: GuiObject, maxSize: number)
 	local limit = Instance.new("UITextSizeConstraint")
 	limit.MinTextSize = 15
 	limit.MaxTextSize = maxSize
@@ -59,7 +55,11 @@ local function label(parent: Instance, name: string, position: UDim2, size: UDim
 	gui.Position = position
 	gui.Size = size
 	gui.BackgroundTransparency = 1
-	styleText(gui, maxSize)
+	gui.TextColor3 = TEXT
+	gui.Font = Enum.Font.GothamBold
+	gui.TextScaled = true
+	gui.TextTruncate = Enum.TextTruncate.AtEnd
+	limitText(gui, maxSize)
 	gui.Parent = parent
 	return gui
 end
@@ -72,8 +72,10 @@ local function button(parent: Instance, name: string, caption: string, position:
 	gui.Size = size
 	gui.BorderSizePixel = 0
 	gui.BackgroundColor3 = AMBER
-	styleText(gui, 21)
 	gui.TextColor3 = PANEL
+	gui.Font = Enum.Font.GothamBold
+	gui.TextScaled = true
+	limitText(gui, 21)
 	roundCorners(gui)
 	gui.Parent = parent
 	return gui
