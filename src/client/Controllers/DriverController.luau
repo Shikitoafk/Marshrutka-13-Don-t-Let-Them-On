@@ -8,13 +8,19 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
-local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local DriverController = {}
-local atmosphere: { PlayHorn: (any) -> () }? = nil
 
 local ACTION_NAME = "MarshrutkaDriverInput"
 local CAMERA_NAME = "MarshrutkaDriverCamera"
+local EYE_OFFSET = CFrame.new(0, 4, 0)
+local CABIN_FOV = 80
+local CABIN_PITCH = -6
+local MAX_YAW = 60
+local MAX_PITCH = 20
 local GAS_COLOR = Color3.fromRGB(67, 53, 28)
 local BRAKE_COLOR = Color3.fromRGB(68, 38, 42)
 local GAS_PRESSED = Color3.fromRGB(142, 100, 35)
@@ -62,14 +68,13 @@ local function getDriverSeat(): BasePart?
 	return nil
 end
 
-function DriverController:Init(controllers: { [string]: any })
-	atmosphere = controllers.AtmosphereController
-end
+function DriverController:Init(_controllers: { [string]: any }) end
 
 function DriverController:Start()
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = "DriverControls"
 	screen.ResetOnSpawn = false
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
@@ -94,9 +99,9 @@ function DriverController:Start()
 	local horn = makeButton(panel, "Horn", 0, 0.54, BUTTON_COLOR)
 
 	local keyboardLabels = UserInputService.KeyboardEnabled and not UserInputService.TouchEnabled
-	gas.Text = if keyboardLabels then "Газ · W" else "Газ"
-	brake.Text = if keyboardLabels then "Тормоз · S" else "Тормоз"
-	horn.Text = if keyboardLabels then "Сигнал · H" else "Сигнал"
+	gas.Text = Strings.get("driver.throttle") .. (if keyboardLabels then " · W" else "")
+	brake.Text = Strings.get("driver.brake") .. (if keyboardLabels then " · S" else "")
+	horn.Text = Strings.get("driver.horn") .. (if keyboardLabels then " · H" else "")
 
 	local role: string? = nil
 	local roundState: string? = nil
@@ -107,18 +112,25 @@ function DriverController:Start()
 	local pointerConnections: { [InputObject]: RBXScriptConnection } = {}
 	local requests: Requests
 	local seat: BasePart? = nil
-	local drivenCamera: Camera? = nil
-	local previousCameraType: Enum.CameraType? = nil
+	local cameraState: { camera: Camera, cameraType: Enum.CameraType, fov: number, fovMode: Enum.FieldOfViewMode }? = nil
+	local hiddenCharacter: Model? = nil
+	local originalTransparency: { [BasePart]: number } = {}
+	local appearanceChanged: RBXScriptConnection? = nil
+	local appearanceRemoving: RBXScriptConnection? = nil
+	local lookInput: InputObject? = nil
+	local previousMouseBehavior: Enum.MouseBehavior? = nil
+	local yaw, pitch = 0, 0
 	local jumping = Enum.HumanoidStateType.Jumping
 	local lockedHumanoid: Humanoid? = nil
 	local jumpingWasEnabled = true
 	local humanoidAdded: RBXScriptConnection? = nil
 
-	local function soundHorn()
-		requests.horn()
-		if atmosphere then
-			atmosphere:PlayHorn()
+	local function releaseLook()
+		lookInput = nil
+		if previousMouseBehavior and UserInputService.MouseBehavior == Enum.MouseBehavior.LockCurrentPosition then
+			UserInputService.MouseBehavior = previousMouseBehavior
 		end
+		previousMouseBehavior = nil
 	end
 
 	local function restoreJump()
@@ -159,7 +171,7 @@ function DriverController:Start()
 
 	local function updateDoors(open: boolean)
 		doorsOpen = open
-		local label = if open then "Закрыть" else "Двери"
+		local label = Strings.get(if open then "ui.close" else "driver.doors")
 		doors.Text = if keyboardLabels then label .. " · E" else label
 		doors.BackgroundColor3 = if open then GAS_COLOR else BUTTON_COLOR
 	end
@@ -186,6 +198,7 @@ function DriverController:Start()
 	end
 
 	local function clearInput()
+		releaseLook()
 		for _, connection in pointerConnections do
 			connection:Disconnect()
 		end
@@ -232,40 +245,105 @@ function DriverController:Start()
 			elseif key == Enum.KeyCode.E then
 				requests.doors(not doorsOpen)
 			elseif key == Enum.KeyCode.H then
-				soundHorn()
+				requests.horn()
 			end
 		end
 		return if UserInputService:GetFocusedTextBox() then Enum.ContextActionResult.Pass else Enum.ContextActionResult.Sink
 	end
 
-	local function restoreCamera()
-		local camera, cameraType = drivenCamera, previousCameraType
-		if camera and cameraType and camera.CameraType == Enum.CameraType.Scriptable then
-			camera.CameraType = cameraType
+	local function restoreAvatar()
+		if appearanceChanged then
+			appearanceChanged:Disconnect()
+			appearanceChanged = nil
 		end
-		drivenCamera = nil
-		previousCameraType = nil
+		if appearanceRemoving then
+			appearanceRemoving:Disconnect()
+			appearanceRemoving = nil
+		end
+		for part, alpha in originalTransparency do
+			part.LocalTransparencyModifier = alpha
+		end
+		table.clear(originalTransparency)
+		hiddenCharacter = nil
 	end
 
-	local function updateCamera()
+	local function hideAvatar(character: Model?)
+		if character ~= hiddenCharacter then
+			restoreAvatar()
+			if character then
+				hiddenCharacter = character
+				local function hide(part: Instance)
+					if part:IsA("BasePart") and originalTransparency[part] == nil then
+						originalTransparency[part] = part.LocalTransparencyModifier
+						part.LocalTransparencyModifier = 1
+					end
+				end
+				for _, part in character:GetDescendants() do
+					hide(part)
+				end
+				appearanceChanged = character.DescendantAdded:Connect(hide)
+				appearanceRemoving = character.DescendantRemoving:Connect(function(part)
+					if part:IsA("BasePart") then
+						local alpha = originalTransparency[part]
+						if alpha ~= nil then
+							part.LocalTransparencyModifier = alpha
+							originalTransparency[part] = nil
+						end
+					end
+				end)
+			end
+		end
+		-- Встроенная камера тоже может менять прозрачность частей персонажа.
+		for part in originalTransparency do
+			part.LocalTransparencyModifier = 1
+		end
+	end
+
+	local function restoreCamera()
+		local state = cameraState
+		if state and state.camera.CameraType == Enum.CameraType.Scriptable then
+			state.camera.FieldOfViewMode = state.fovMode
+			state.camera.FieldOfView = state.fov
+			state.camera.CameraType = state.cameraType
+		end
+		cameraState = nil
+		restoreAvatar()
+		releaseLook()
+		yaw, pitch = 0, 0
+	end
+
+	local function updateCamera(dt: number)
 		local driverSeat = seat
 		if not driverSeat or not driverSeat:IsDescendantOf(Workspace) then
 			driverSeat = getDriverSeat()
 			seat = driverSeat
 		end
 		local camera = Workspace.CurrentCamera
-		if camera ~= drivenCamera or not driverSeat then
+		local state = cameraState
+		if state and (state.camera ~= camera or not driverSeat) then
 			restoreCamera()
 		end
 		if not camera or not driverSeat then
 			return
 		end
-		if camera ~= drivenCamera then
-			drivenCamera = camera
-			previousCameraType = camera.CameraType
+		if not cameraState then
+			cameraState = { camera = camera, cameraType = camera.CameraType, fov = camera.FieldOfView, fovMode = camera.FieldOfViewMode }
 			camera.CameraType = Enum.CameraType.Scriptable
+			camera.FieldOfViewMode = Enum.FieldOfViewMode.Vertical
 		end
-		local view = driverSeat.CFrame * CFrame.new(0, 2.5, -1)
+		local viewport = camera.ViewportSize
+		-- На узком экране сохраняем боковое поле зрения, чтобы увидеть правую дверь.
+		local portraitFov = 2 * math.deg(math.atan(math.tan(math.rad(37)) * viewport.Y / math.max(1, viewport.X)))
+		camera.FieldOfView = math.clamp(portraitFov, CABIN_FOV, 116)
+		local character = player.Character
+		hideAvatar(if character and character:IsDescendantOf(Workspace) then character else nil)
+		if not lookInput then
+			local remaining = math.exp(-14 * dt)
+			yaw *= remaining
+			pitch *= remaining
+		end
+		local view = driverSeat.CFrame * EYE_OFFSET
+			* CFrame.Angles(0, math.rad(yaw), 0) * CFrame.Angles(math.rad(CABIN_PITCH + pitch), 0, 0)
 		camera.CFrame = view
 		camera.Focus = view * CFrame.new(0, 0, -18)
 	end
@@ -307,7 +385,38 @@ function DriverController:Start()
 	end)
 	horn.Activated:Connect(function()
 		if screen.Enabled then
-			soundHorn()
+			requests.horn()
+		end
+	end)
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed or not cameraState or lookInput or UserInputService:GetFocusedTextBox() then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+			previousMouseBehavior = UserInputService.MouseBehavior
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+			lookInput = input
+		elseif input.UserInputType == Enum.UserInputType.Touch and not pointerThrottle[input] then
+			lookInput = input
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input: InputObject)
+		local gesture = lookInput
+		if not gesture then
+			return
+		end
+		if input == gesture and (input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel) then
+			releaseLook()
+		elseif (input == gesture and not pointerThrottle[input])
+			or (gesture.UserInputType == Enum.UserInputType.MouseButton2 and input.UserInputType == Enum.UserInputType.MouseMovement)
+		then
+			yaw = math.clamp(yaw - input.Delta.X * 0.22, -MAX_YAW, MAX_YAW)
+			pitch = math.clamp(pitch - input.Delta.Y * 0.22, -MAX_PITCH, MAX_PITCH)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input: InputObject)
+		if input == lookInput then
+			releaseLook()
 		end
 	end)
 	UserInputService.WindowFocusReleased:Connect(clearInput)
@@ -317,6 +426,7 @@ function DriverController:Start()
 	player.CharacterRemoving:Connect(function()
 		clearInput()
 		restoreJump()
+		restoreAvatar()
 	end)
 	updateDoors(false)
 

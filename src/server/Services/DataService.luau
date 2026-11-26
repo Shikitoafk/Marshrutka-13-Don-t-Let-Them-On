@@ -28,6 +28,7 @@ type Session = {
 	key: string,
 	id: string,
 	profile: Profile?,
+	tutorialOffered: boolean,
 	expiresAt: number,
 	loading: boolean,
 	recovering: boolean,
@@ -137,10 +138,10 @@ local function publishTenge(player: Player, tenge: number)
 		leaderstats.Parent = player
 		folder = leaderstats
 	end
-	local stat = folder:FindFirstChild("Тенге")
+	local stat = folder:FindFirstChild("₸")
 	if not stat then
 		local balance = Instance.new("IntValue")
-		balance.Name = "Тенге"
+		balance.Name = "₸"
 		balance.Value = tenge
 		balance.Parent = folder
 	elseif stat:IsA("IntValue") then
@@ -151,7 +152,7 @@ end
 
 local function notifyUnavailable(session: Session)
 	if not session.closing and session.player.Parent == Players then
-		notify:FireClient(session.player, "Баланс временно недоступен.", "Warn")
+		notify:FireClient(session.player, "notify.balance_unavailable", "Warn")
 	end
 end
 
@@ -174,11 +175,14 @@ local function loadSession(session: Session)
 	if raw and expiresAt then
 		local profile = readProfile(raw)
 		session.profile = profile
+		session.tutorialOffered = raw.TutorialOffered == true
 		session.expiresAt = expiresAt
 		if not session.closing and session.player.Parent == Players then
+			session.player:SetAttribute("ShowTutorial", not session.tutorialOffered)
+			session.tutorialOffered = true
 			publishTenge(session.player, profile.Tenge)
 			if session.recovering then
-				notify:FireClient(session.player, "Баланс снова доступен.", "Good")
+				notify:FireClient(session.player, "notify.balance_restored", "Good")
 			end
 		end
 		session.recovering = false
@@ -211,6 +215,7 @@ local function openSession(player: Player): Session?
 		key = tostring(player.UserId),
 		id = HttpService:GenerateGUID(false),
 		profile = nil,
+		tutorialOffered = false,
 		expiresAt = 0,
 		loading = true,
 		recovering = false,
@@ -230,6 +235,7 @@ local function saveSession(session: Session, final: boolean)
 	end
 	session.saving = true
 	local snapshot = copyProfile(profile)
+	local tutorialOffered = session.tutorialOffered
 	local written, info, ok = updateWithRetry(session.key, function(current, currentInfo)
 		local metadata = keyMetadata(currentInfo)
 		if metadata.SessionId ~= session.id or type(current) ~= "table" then
@@ -244,6 +250,7 @@ local function saveSession(session: Session, final: boolean)
 		record.Tenge = snapshot.Tenge
 		record.Stats = stats
 		record.OwnedSkins = snapshot.OwnedSkins
+		record.TutorialOffered = tutorialOffered
 		metadata.SessionId = if final then nil else session.id
 		metadata.SessionExpiresAt = if final then nil else os.time() + LEASE_DURATION
 		return record, keyUsers(currentInfo, session.player.UserId), metadata

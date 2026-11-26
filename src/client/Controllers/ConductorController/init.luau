@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 local Flashlight = require(script.Flashlight)
 local Mirror = require(script.Mirror)
 local StudioPreview = require(script.StudioPreview)
@@ -106,8 +107,9 @@ end
 
 local function makePrompt(parent: BasePart, caption: string, key: Enum.KeyCode, gamepadKey: Enum.KeyCode, y: number): ProximityPrompt
 	local prompt = Instance.new("ProximityPrompt")
+	prompt.AutoLocalize = false
 	prompt.ActionText = caption
-	prompt.ObjectText = "Пассажир"
+	prompt.ObjectText = Strings.get("conductor.passenger")
 	prompt.MaxActivationDistance = Config.INSPECT_RANGE
 	prompt.KeyboardKeyCode = key
 	prompt.GamepadKeyCode = gamepadKey
@@ -139,6 +141,7 @@ function ConductorController:Start()
 	local player = Players.LocalPlayer
 	local playerGui = player:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = "ConductorTools"
 	screen.DisplayOrder = 3
 	screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -154,11 +157,11 @@ function ConductorController:Start()
 	toolbar.BackgroundTransparency = 1
 	constrain(toolbar, Vector2.new(236, 52), Vector2.new(365, 74))
 	toolbar.Parent = screen
-	local mirrorButton = button(toolbar, "OpenMirror", "Зеркало", UDim2.fromScale(0, 0), UDim2.fromScale(0.43, 1))
+	local mirrorButton = button(toolbar, "OpenMirror", Strings.get("conductor.mirror"), UDim2.fromScale(0, 0), UDim2.fromScale(0.43, 1))
 	local lightButton = button(toolbar, "Flashlight", "", UDim2.fromScale(0.46, 0), UDim2.fromScale(0.54, 1))
 
 	local mirrorShade, mirrorPanel = overlay(screen, "CabinMirror", 2, 1.65, Vector2.new(610, 370))
-	label(mirrorPanel, "Зеркало заднего вида", UDim2.fromScale(0.05, 0.03), UDim2.fromScale(0.9, 0.13))
+	label(mirrorPanel, Strings.get("conductor.rearview"), UDim2.fromScale(0.05, 0.03), UDim2.fromScale(0.9, 0.13))
 	local viewport = Instance.new("ViewportFrame")
 	viewport.Name = "Cabin"
 	viewport.Position = UDim2.fromScale(0.045, 0.18)
@@ -168,17 +171,17 @@ function ConductorController:Start()
 	viewport.BorderSizePixel = 0
 	corners(viewport)
 	viewport.Parent = mirrorPanel
-	local missingCabin = label(mirrorPanel, "Салон пока недоступен", viewport.Position, viewport.Size)
+	local missingCabin = label(mirrorPanel, Strings.get("conductor.cabin_unavailable"), viewport.Position, viewport.Size)
 	missingCabin.ZIndex = 2
-	local mirrorClose = button(mirrorPanel, "CloseMirror", "Закрыть", UDim2.fromScale(0.045, 0.96), UDim2.fromScale(0.91, 0.23))
+	local mirrorClose = button(mirrorPanel, "CloseMirror", Strings.get("ui.close"), UDim2.fromScale(0.045, 0.96), UDim2.fromScale(0.91, 0.23))
 	mirrorClose.AnchorPoint = Vector2.new(0, 1)
 	constrain(mirrorClose, Vector2.new(0, 48), Vector2.new(math.huge, math.huge))
 
 	local dialog, dialogPanel = overlay(screen, "PassengerDialog", 3, 1.4, Vector2.new(425, 302))
 	local dialogTitle = label(dialogPanel, "", UDim2.fromScale(0.06, 0.075), UDim2.fromScale(0.88, 0.22))
 	local dialogBody = label(dialogPanel, "", UDim2.fromScale(0.06, 0.31), UDim2.fromScale(0.88, 0.33))
-	local dialogClose = button(dialogPanel, "CloseDialog", "Закрыть", UDim2.fromScale(0.055, 0.94), UDim2.fromScale(0.89, 0.23))
-	local confirm = button(dialogPanel, "ConfirmEject", "Высадить", UDim2.fromScale(0.52, 0.94), UDim2.fromScale(0.425, 0.23))
+	local dialogClose = button(dialogPanel, "CloseDialog", Strings.get("ui.close"), UDim2.fromScale(0.055, 0.94), UDim2.fromScale(0.89, 0.23))
+	local confirm = button(dialogPanel, "ConfirmEject", Strings.get("conductor.eject"), UDim2.fromScale(0.52, 0.94), UDim2.fromScale(0.425, 0.23))
 	confirm.BackgroundColor3 = Color3.fromRGB(116, 49, 47)
 	for _, control in { dialogClose, confirm } do
 		control.AnchorPoint = Vector2.new(0, 1)
@@ -237,7 +240,7 @@ function ConductorController:Start()
 	end
 
 	local function updateLightButton()
-		local text = `Фонарь · {math.ceil(battery)} с`
+		local text = Strings.get("conductor.flashlight", { seconds = math.ceil(battery) })
 		if lightButton.Text ~= text then
 			lightButton.Text = text
 		end
@@ -279,10 +282,10 @@ function ConductorController:Start()
 		pendingTicket = nil
 		dialogPanel.BackgroundColor3 = PAPER
 		dialogTitle.TextColor3 = PANEL
-		dialogTitle.Text = "БИЛЕТ"
+		dialogTitle.Text = Strings.get("conductor.ticket")
 		dialogBody.TextColor3 = PANEL
-		dialogBody.Text = `Маршрут {data.Route}\nДата {data.Date}`
-		dialogClose.Text = "Закрыть"
+		dialogBody.Text = Strings.get("conductor.ticket_details", { route = data.Route, date = data.Date })
+		dialogClose.Text = Strings.get("ui.close")
 		dialogClose.Size = UDim2.fromScale(0.89, 0.23)
 		confirm.Visible = false
 		dialog.Visible = true
@@ -295,10 +298,10 @@ function ConductorController:Start()
 		selectedEject = target
 		dialogPanel.BackgroundColor3 = PANEL
 		dialogTitle.TextColor3 = TEXT
-		dialogTitle.Text = "Высадка пассажира"
+		dialogTitle.Text = Strings.get("conductor.eject_title")
 		dialogBody.TextColor3 = TEXT
-		dialogBody.Text = "Точно высадить?"
-		dialogClose.Text = "Отмена"
+		dialogBody.Text = Strings.get("conductor.eject_confirm")
+		dialogClose.Text = Strings.get("ui.cancel")
 		dialogClose.Size = UDim2.fromScale(0.425, 0.23)
 		confirm.Visible = true
 		dialog.Visible = true
@@ -359,8 +362,8 @@ function ConductorController:Start()
 			end
 			table.insert(models, model)
 			if not targets[model] then
-				local ticketPrompt = makePrompt(part, "Проверить билет", Enum.KeyCode.E, Enum.KeyCode.ButtonX, -37)
-				local ejectPrompt = makePrompt(part, "Высадить", Enum.KeyCode.R, Enum.KeyCode.ButtonY, 37)
+				local ticketPrompt = makePrompt(part, Strings.get("conductor.inspect"), Enum.KeyCode.E, Enum.KeyCode.ButtonX, -37)
+				local ejectPrompt = makePrompt(part, Strings.get("conductor.eject"), Enum.KeyCode.R, Enum.KeyCode.ButtonY, 37)
 				local target = { model = model, id = id, part = part, ticket = ticketPrompt, eject = ejectPrompt }
 				targets[model] = target
 				ticketPrompt.Triggered:Connect(function(triggeringPlayer)

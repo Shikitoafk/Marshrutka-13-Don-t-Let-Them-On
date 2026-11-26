@@ -13,11 +13,8 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AtmosphereController = {}
 
-local HORN_INTERVAL = 1
 local FLICKER_STEP = 0.25
 local BLACKOUT_DURATION = 1.8
-
-local playHorn: (() -> ())? = nil
 
 local function setNight()
 	Lighting.ClockTime = 0.3
@@ -69,12 +66,6 @@ end
 
 function AtmosphereController:Init(_controllers: { [string]: any }) end
 
-function AtmosphereController:PlayHorn()
-	if playHorn then
-		playHorn()
-	end
-end
-
 function AtmosphereController:Start()
 	setNight()
 	local blackout = Instance.new("ColorCorrectionEffect")
@@ -91,7 +82,6 @@ function AtmosphereController:Start()
 		{ name = "Engine", id = soundIds.Engine, volume = 0.32, looped = true },
 		{ name = "DoorOpen", id = soundIds.DoorOpen, volume = 0.6, looped = false },
 		{ name = "DoorClose", id = soundIds.DoorClose, volume = 0.6, looped = false },
-		{ name = "Horn", id = soundIds.Horn, volume = 0.68, looped = false },
 		{ name = "RadioStatic", id = soundIds.RadioStatic, volume = 0.47, looped = false },
 	}
 	local ambient = makeSound("Ambience", soundIds.Ambience, SoundService, 0.26, true)
@@ -110,7 +100,6 @@ function AtmosphereController:Start()
 	local currentRoot: BasePart? = nil
 	local cabinSounds: { [string]: Sound } = {}
 	local lastDoorsOpen: boolean? = nil
-	local lastHornAt = -math.huge
 
 	local function restoreLights()
 		for light, enabled in originalLights do
@@ -214,19 +203,6 @@ function AtmosphereController:Start()
 		lastDoorsOpen = doorsOpen
 	end
 
-	playHorn = function()
-		local now = os.clock()
-		if not isRunning() or now - lastHornAt < HORN_INTERVAL then
-			return
-		end
-		syncBus()
-		local horn = cabinSounds.Horn
-		if horn then
-			lastHornAt = now
-			replay(horn)
-		end
-	end
-
 	local function onEscalation(_level: number, effect: string)
 		if not isRunning() or not table.find(Config.ESCALATION_EFFECTS, effect) then
 			return
@@ -301,9 +277,6 @@ function AtmosphereController:Start()
 			elseif effect == "Defeat" then
 				applyRoundState("Running")
 				applyResult({ Won = false })
-			elseif effect == "Horn" then
-				applyRoundState("Running")
-				self:PlayHorn()
 			else
 				applyRoundState("Running")
 				onEscalation(1, effect)

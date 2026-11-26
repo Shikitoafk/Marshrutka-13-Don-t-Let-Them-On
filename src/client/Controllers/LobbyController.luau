@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Strings = require(Shared:WaitForChild("Strings"))
 
 local LobbyController = {}
 
@@ -17,6 +18,7 @@ local TEXT_COLOR = Color3.fromRGB(250, 244, 231)
 local MUTED_COLOR = Color3.fromRGB(193, 207, 225)
 local AMBER_COLOR = Color3.fromRGB(246, 198, 110)
 local READY_COLOR = Color3.fromRGB(147, 223, 177)
+local TUTORIAL_CARDS = { "tutorial.roles", "tutorial.tools", "tutorial.eject" }
 
 type ReadyByUserId = { [string]: boolean }
 type LobbyData = {
@@ -47,6 +49,108 @@ local function styleText(gui: TextLabel, maxTextSize: number)
 	limitText(gui, maxTextSize)
 end
 
+local function makePanel(screen: ScreenGui): Frame
+	local panel = Instance.new("Frame")
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+	panel.Size = UDim2.fromScale(0.94, 0.92)
+	panel.BackgroundColor3 = PANEL_COLOR
+	panel.BorderSizePixel = 0
+	panel.Active = true
+	roundCorners(panel, 14)
+
+	local aspect = Instance.new("UIAspectRatioConstraint")
+	aspect.AspectRatio = 1.15
+	aspect.AspectType = Enum.AspectType.FitWithinMaxSize
+	aspect.Parent = panel
+	local sizeLimit = Instance.new("UISizeConstraint")
+	sizeLimit.MaxSize = Vector2.new(500, 435)
+	sizeLimit.Parent = panel
+	panel.Parent = screen
+	return panel
+end
+
+local function makeButton(panel: Frame, name: string, x: number, width: number): TextButton
+	local button = Instance.new("TextButton")
+	button.Name = name
+	button.AnchorPoint = Vector2.new(0, 1)
+	button.Position = UDim2.fromScale(x, 0.94)
+	button.Size = UDim2.fromScale(width, 0.18)
+	button.BackgroundColor3 = ROW_COLOR
+	button.TextColor3 = TEXT_COLOR
+	button.Font = Enum.Font.GothamBold
+	button.TextScaled = true
+	button.TextWrapped = true
+	button.BorderSizePixel = 0
+	limitText(button, 23)
+	roundCorners(button, 10)
+	local buttonSize = Instance.new("UISizeConstraint")
+	buttonSize.MinSize = Vector2.new(0, 48)
+	buttonSize.Parent = button
+	button.Parent = panel
+	return button
+end
+
+local function makeTutorial(screen: ScreenGui, lobby: Frame): (() -> (), () -> ())
+	local panel = makePanel(screen)
+	panel.Name = "Tutorial"
+	panel.Visible = false
+
+	local progress = Instance.new("TextLabel")
+	progress.Name = "CardProgress"
+	progress.Position = UDim2.fromScale(0.06, 0.08)
+	progress.Size = UDim2.fromScale(0.88, 0.12)
+	styleText(progress, 19)
+	progress.TextColor3 = AMBER_COLOR
+	progress.Parent = panel
+
+	local body = Instance.new("TextLabel")
+	body.Name = "CardText"
+	body.Position = UDim2.fromScale(0.09, 0.23)
+	body.Size = UDim2.fromScale(0.82, 0.44)
+	styleText(body, 34)
+	body.Font = Enum.Font.GothamBold
+	body.TextTruncate = Enum.TextTruncate.None
+	body.TextWrapped = true
+	body.Parent = panel
+
+	local close = makeButton(panel, "CloseTutorial", 0.06, 0.42)
+	close.Text = Strings.get("ui.close")
+	local nextButton = makeButton(panel, "NextCard", 0.52, 0.42)
+	nextButton.BackgroundColor3 = AMBER_COLOR
+	nextButton.TextColor3 = PANEL_COLOR
+
+	local card = 1
+	local function renderCard()
+		progress.Text = `{card}/{#TUTORIAL_CARDS}`
+		body.Text = Strings.get(TUTORIAL_CARDS[card])
+		nextButton.Text = Strings.get(if card == #TUTORIAL_CARDS then "tutorial.done" else "tutorial.next")
+	end
+
+	local function openTutorial()
+		card = 1
+		renderCard()
+		lobby.Visible = false
+		panel.Visible = true
+	end
+
+	local function closeTutorial()
+		panel.Visible = false
+		lobby.Visible = true
+	end
+
+	close.Activated:Connect(closeTutorial)
+	nextButton.Activated:Connect(function()
+		if card == #TUTORIAL_CARDS then
+			closeTutorial()
+		else
+			card += 1
+			renderCard()
+		end
+	end)
+	return openTutorial, closeTutorial
+end
+
 local function makeRow(parent: ScrollingFrame, player: Player, order: number, ready: boolean): Frame
 	local row = Instance.new("Frame")
 	row.Name = tostring(player.UserId)
@@ -62,7 +166,7 @@ local function makeRow(parent: ScrollingFrame, player: Player, order: number, re
 	name.Size = UDim2.fromScale(0.65, 1)
 	styleText(name, 18)
 	name.TextXAlignment = Enum.TextXAlignment.Left
-	name.Text = if player == Players.LocalPlayer then player.DisplayName .. " · вы" else player.DisplayName
+	name.Text = if player == Players.LocalPlayer then Strings.get("ui.you", { name = player.DisplayName }) else player.DisplayName
 	name.Parent = row
 
 	local status = Instance.new("TextLabel")
@@ -72,7 +176,7 @@ local function makeRow(parent: ScrollingFrame, player: Player, order: number, re
 	styleText(status, 17)
 	status.TextXAlignment = Enum.TextXAlignment.Right
 	status.TextColor3 = if ready then READY_COLOR else MUTED_COLOR
-	status.Text = if ready then "Готов" else "Ждёт"
+	status.Text = Strings.get(if ready then "lobby.ready" else "lobby.waiting")
 	status.Parent = row
 	row.Parent = parent
 	return row
@@ -85,29 +189,14 @@ function LobbyController:Start()
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
 
 	local screen = Instance.new("ScreenGui")
+	screen.AutoLocalize = false
 	screen.Name = "DepotLobby"
 	screen.DisplayOrder = 1
 	screen.ScreenInsets = Enum.ScreenInsets.CoreUISafeInsets
 	screen.ResetOnSpawn = false
 	screen.Parent = playerGui
 
-	local panel = Instance.new("Frame")
-	panel.AnchorPoint = Vector2.new(0.5, 0.5)
-	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.fromScale(0.94, 0.92)
-	panel.BackgroundColor3 = PANEL_COLOR
-	panel.BorderSizePixel = 0
-	panel.Active = true
-	roundCorners(panel, 14)
-	panel.Parent = screen
-
-	local aspect = Instance.new("UIAspectRatioConstraint")
-	aspect.AspectRatio = 1.15
-	aspect.AspectType = Enum.AspectType.FitWithinMaxSize
-	aspect.Parent = panel
-	local sizeLimit = Instance.new("UISizeConstraint")
-	sizeLimit.MaxSize = Vector2.new(500, 435)
-	sizeLimit.Parent = panel
+	local panel = makePanel(screen)
 
 	local title = Instance.new("TextLabel")
 	title.Position = UDim2.fromScale(0.06, 0.05)
@@ -115,7 +204,7 @@ function LobbyController:Start()
 	styleText(title, 30)
 	title.Font = Enum.Font.GothamBold
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "Депо"
+	title.Text = Strings.get("lobby.title")
 	title.Parent = panel
 
 	local countdown = Instance.new("TextLabel")
@@ -145,22 +234,27 @@ function LobbyController:Start()
 	listLayout.Padding = UDim.new(0, 5)
 	listLayout.Parent = list
 
-	local readyButton = Instance.new("TextButton")
-	readyButton.Name = "ReadyButton"
-	readyButton.AnchorPoint = Vector2.new(0, 1)
-	readyButton.Position = UDim2.fromScale(0.06, 0.94)
-	readyButton.Size = UDim2.fromScale(0.88, 0.18)
-	limitText(readyButton, 23)
-	readyButton.BackgroundTransparency = 0
-	readyButton.Font = Enum.Font.GothamBold
-	readyButton.TextScaled = true
-	readyButton.TextTruncate = Enum.TextTruncate.AtEnd
-	readyButton.BorderSizePixel = 0
-	roundCorners(readyButton, 10)
-	local buttonSize = Instance.new("UISizeConstraint")
-	buttonSize.MinSize = Vector2.new(0, 48)
-	buttonSize.Parent = readyButton
-	readyButton.Parent = panel
+	local readyButton = makeButton(panel, "ReadyButton", 0.06, 0.49)
+	local howToPlay = makeButton(panel, "HowToPlay", 0.59, 0.35)
+	howToPlay.Text = Strings.get("tutorial.open")
+	local openTutorial, closeTutorial = makeTutorial(screen, panel)
+	local studio = RunService:IsStudio()
+	local previewTutorial = studio and Workspace:GetAttribute("StudioTutorialPreview") == true
+	local tutorialOpened = false
+
+	local function openOnce()
+		tutorialOpened = true
+		openTutorial()
+	end
+
+	local function maybeOpenTutorial()
+		if screen.Enabled and not tutorialOpened and (previewTutorial or localPlayer:GetAttribute("ShowTutorial") == true) then
+			openOnce()
+		end
+	end
+
+	howToPlay.Activated:Connect(openOnce)
+	localPlayer:GetAttributeChangedSignal("ShowTutorial"):Connect(maybeOpenTutorial)
 
 	local state = "Lobby"
 	local readyByUserId: ReadyByUserId = {}
@@ -170,13 +264,13 @@ function LobbyController:Start()
 	local localUserId = tostring(localPlayer.UserId)
 
 	local function updateCountdown()
-		local text = "Ожидание игроков"
+		local text = Strings.get("lobby.waiting_players")
 		if state == "Countdown" then
 			if countdownEndsAt then
 				local seconds = math.ceil(countdownEndsAt - Workspace:GetServerTimeNow())
-				text = if seconds > 0 then `Старт через {seconds} с` else "Отправляемся…"
+				text = if seconds > 0 then Strings.get("lobby.countdown", { seconds = seconds }) else Strings.get("lobby.departing")
 			else
-				text = "Отсчёт начался"
+				text = Strings.get("lobby.countdown_started")
 			end
 		end
 		if countdown.Text ~= text then
@@ -204,7 +298,7 @@ function LobbyController:Start()
 		end
 
 		local isReady = readyByUserId[localUserId] == true
-		readyButton.Text = if isReady then "Отменить готовность" else "Готов"
+		readyButton.Text = Strings.get(if isReady then "lobby.unready" else "lobby.ready")
 		readyButton.BackgroundColor3 = if isReady then ROW_COLOR else AMBER_COLOR
 		readyButton.TextColor3 = if isReady then TEXT_COLOR else PANEL_COLOR
 	end
@@ -226,6 +320,9 @@ function LobbyController:Start()
 		if screen.Enabled then
 			updateRoster()
 			updateCountdown()
+			maybeOpenTutorial()
+		else
+			closeTutorial()
 		end
 	end
 
@@ -241,7 +338,7 @@ function LobbyController:Start()
 	end)
 	applyRoundState("Lobby", nil)
 
-	if RunService:IsStudio() and Workspace:GetAttribute("StudioHudLobbyPreview") == true then
+	if studio and Workspace:GetAttribute("StudioHudLobbyPreview") == true then
 		local preview = Instance.new("BindableEvent")
 		preview.Name = "StudioRoundPreview"
 		preview.Parent = playerGui
