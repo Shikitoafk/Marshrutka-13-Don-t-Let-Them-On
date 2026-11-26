@@ -41,7 +41,7 @@ local Config = {
 	ANOMALY_CHANCE = 0.35, -- шанс, что новый пассажир — аномалия
 	MAX_ANOMALIES_AT_ONCE = 2,
 	ANOMALY_DAMAGE = 25, -- урон автобусу, если аномалия едет дальше остановки
-	ESCALATION_EFFECTS = { "LightsFlicker", "RadioStatic", "Whispers", "Blackout" },
+	ESCALATION_EFFECTS = { "LightsFlicker", "Blackout", "Whispers", "RadioStatic" }, -- Blackout на 2-м ударе: силуэт на заднем сиденье виден в середине рейса, а не перед смертью
 
 	-- Инструменты кондуктора
 	INSPECT_RANGE = 10, -- studs, дистанция проверки (сервер проверяет!)
