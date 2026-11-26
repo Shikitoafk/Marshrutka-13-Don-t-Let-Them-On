@@ -5,6 +5,7 @@
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
@@ -32,6 +33,13 @@ local passengerLeft = Remotes.Event("PassengerLeft")
 
 local function pick<T>(list: { T }): T
 	return list[math.random(#list)]
+end
+
+-- Для разбора в Studio: «никто не сел» отличается от «пассажир не создался».
+local function log(text: string)
+	if RunService:IsStudio() then
+		print(`[Passenger] {text}`)
+	end
 end
 
 -- Модель пассажира: случайная из ServerStorage.PassengerRigs, иначе простой R15 случайных цветов.
@@ -144,8 +152,9 @@ function PassengerService:Start()
 		if taken >= Config.MAX_PASSENGERS_ON_BUS then
 			return nil
 		end
+		-- Только по своим резервам: Occupant обновляется не сразу после того, как кто-то встал.
 		for _, seat in seatsFolder:GetChildren() do
-			if seat:IsA("Seat") and not seat.Occupant and not reserved[seat] then
+			if seat:IsA("Seat") and not reserved[seat] then
 				return seat
 			end
 		end
@@ -158,7 +167,11 @@ function PassengerService:Start()
 			return
 		end
 		for _, player in round:GetRiders() do
-			task.spawn(data.AddTenge, data, player, Config.FARE_PER_PASSENGER) -- AddTenge может ждать профиль
+			task.spawn(function() -- AddTenge может ждать загрузки профиля
+				if not data:AddTenge(player, Config.FARE_PER_PASSENGER) and RunService:IsStudio() then
+					warn(`[Passenger] Тенге не начислены {player.Name}: профиль недоступен (плейс не опубликован или выключен доступ к API)`)
+				end
+			end)
 		end
 	end
 
@@ -208,15 +221,18 @@ function PassengerService:Start()
 				if p.seat == seat then
 					reserved[seat] = nil -- не успел: двери закрылись или рейс сброшен
 					p.seat = nil
+					log(`Остановка {stop}: пассажир не успел сесть`)
 				end
 				return
 			end
 			table.remove(waiting[stop], index)
+			p.model:PivotTo(seat.CFrame + Vector3.new(0, 3, 0)) -- рядом с сиденьем, потом Sit (ещё не приварен — можно)
 			seat:Sit(p.humanoid)
 			p.model.Parent = passengersFolder
 			onboard[p.id] = p
 			passengerBoarded:FireAllClients(p.id)
 			payFare()
+			log(`Остановка {stop}: сел пассажир (выйдет на {p.exitStop})`)
 		end)
 	end
 
@@ -224,6 +240,7 @@ function PassengerService:Start()
 		onboard[p.id] = nil
 		unseat(p)
 		passengerLeft:FireAllClients(p.id, "Exited")
+		log(`Остановка {currentStop}: вышел пассажир`)
 		local outside = doorOutside(p.model:GetPivot().Position)
 		p.model.Parent = map -- из папки Passengers: инструменты кондуктора на него больше не действуют
 		p.model:PivotTo(CFrame.lookAt(outside, outside + root.CFrame.RightVector))
@@ -238,6 +255,7 @@ function PassengerService:Start()
 			for _ = 1, math.random(Config.PASSENGERS_PER_STOP_MIN, Config.PASSENGERS_PER_STOP_MAX) do
 				spawnWaiter(index)
 			end
+			log(`Остановка {index}: ждут {if waiting[index] then #waiting[index] else 0}`)
 		elseif phase == "AtStop" then
 			currentStop = index
 		elseif phase == "Departed" then
