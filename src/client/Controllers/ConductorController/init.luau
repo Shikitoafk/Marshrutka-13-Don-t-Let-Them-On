@@ -38,10 +38,7 @@ local function corners(gui: GuiObject)
 	corner.Parent = gui
 end
 
-local function stylizeText(gui: TextButton | TextLabel, maxSize: number)
-	gui.Font = Enum.Font.GothamBold
-	gui.TextColor3 = TEXT
-	gui.TextScaled = true
+local function limitText(gui: GuiObject, maxSize: number)
 	local limit = Instance.new("UITextSizeConstraint")
 	limit.MinTextSize = 15
 	limit.MaxTextSize = maxSize
@@ -56,7 +53,10 @@ local function button(parent: Instance, name: string, caption: string, position:
 	gui.Size = size
 	gui.BorderSizePixel = 0
 	gui.BackgroundColor3 = BUTTON
-	stylizeText(gui, 21)
+	gui.Font = Enum.Font.GothamBold
+	gui.TextColor3 = TEXT
+	gui.TextScaled = true
+	limitText(gui, 21)
 	corners(gui)
 	gui.Parent = parent
 	return gui
@@ -68,7 +68,10 @@ local function label(parent: Instance, caption: string, position: UDim2, size: U
 	gui.Position = position
 	gui.Size = size
 	gui.BackgroundTransparency = 1
-	stylizeText(gui, 23)
+	gui.Font = Enum.Font.GothamBold
+	gui.TextColor3 = TEXT
+	gui.TextScaled = true
+	limitText(gui, 23)
 	gui.Parent = parent
 	return gui
 end
