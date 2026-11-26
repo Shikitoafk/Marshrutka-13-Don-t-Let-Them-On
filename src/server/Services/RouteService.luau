@@ -184,6 +184,9 @@ function RouteService:Start()
 	local function announce(s: Stop, phase: string)
 		lastStop, lastPhase = s, phase
 		stopChanged:FireAllClients(s.index, s.name, phase)
+		if RunService:IsStudio() then
+			print(`[Route] Остановка {s.index} «{s.name}»: {phase}`) -- HUD покажет это только с RoundService (T04)
+		end
 	end
 
 	local function setDoors(open: boolean)
@@ -266,7 +269,7 @@ function RouteService:Start()
 				s.served = true
 				announce(s, "AtStop")
 				if nextStop == #stops then
-					finished = true -- конечная: рейс окончен, Departed не будет
+					finished, speed = true, 0 -- конечная: рейс окончен, Departed не будет
 					setDoors(true)
 				elseif not driver then
 					setDoors(true)
