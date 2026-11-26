@@ -64,7 +64,8 @@ end
 function DriverController:Init(_controllers: { [string]: any }) end
 
 function DriverController:Start()
-	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	local player = Players.LocalPlayer
+	local playerGui = player:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
 	screen.Name = "DriverControls"
 	screen.ResetOnSpawn = false
@@ -105,6 +106,46 @@ function DriverController:Start()
 	local seat: BasePart? = nil
 	local drivenCamera: Camera? = nil
 	local previousCameraType: Enum.CameraType? = nil
+	local jumping = Enum.HumanoidStateType.Jumping
+	local lockedHumanoid: Humanoid? = nil
+	local jumpingWasEnabled = true
+	local humanoidAdded: RBXScriptConnection? = nil
+
+	local function restoreJump()
+		if humanoidAdded then
+			humanoidAdded:Disconnect()
+			humanoidAdded = nil
+		end
+		if lockedHumanoid then
+			lockedHumanoid:SetStateEnabled(jumping, jumpingWasEnabled)
+			lockedHumanoid = nil
+		end
+	end
+
+	local function refreshJumpLock(character: Model?)
+		restoreJump()
+		if not screen.Enabled or not character then
+			return
+		end
+
+		local function lockJump(humanoid: Humanoid)
+			jumpingWasEnabled = humanoid:GetStateEnabled(jumping)
+			lockedHumanoid = humanoid
+			humanoid.Jump = false
+			humanoid:SetStateEnabled(jumping, false)
+		end
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			lockJump(humanoid)
+		else
+			humanoidAdded = character.ChildAdded:Connect(function(child)
+				if child:IsA("Humanoid") and screen.Enabled and player.Character == character and not lockedHumanoid then
+					lockJump(child)
+				end
+			end)
+		end
+	end
 
 	local function updateDoors(open: boolean)
 		doorsOpen = open
@@ -225,6 +266,7 @@ function DriverController:Start()
 			return
 		end
 		screen.Enabled = enabled
+		refreshJumpLock(player.Character)
 		if enabled then
 			ContextActionService:BindActionAtPriority(
 				ACTION_NAME,
@@ -261,7 +303,11 @@ function DriverController:Start()
 	UserInputService.WindowFocusReleased:Connect(clearInput)
 	UserInputService.TextBoxFocused:Connect(clearInput)
 	GuiService.MenuOpened:Connect(clearInput)
-	Players.LocalPlayer.CharacterRemoving:Connect(clearInput)
+	player.CharacterAdded:Connect(refreshJumpLock)
+	player.CharacterRemoving:Connect(function()
+		clearInput()
+		restoreJump()
+	end)
 	updateDoors(false)
 
 	-- Позволяет проверить кнопки в Studio до подключения серверных сервисов.

@@ -159,8 +159,9 @@ function HudController:Start()
 	screen.Parent = playerGui
 
 	local panel = Instance.new("Frame")
-	panel.Position = UDim2.fromScale(0.035, 0.035)
-	panel.Size = UDim2.fromScale(0.93, 0.24)
+	panel.AnchorPoint = Vector2.new(0.5, 0)
+	panel.Position = UDim2.fromScale(0.5, 0.035)
+	panel.Size = UDim2.fromScale(0.85, 0.24)
 	panel.BackgroundColor3 = PANEL_COLOR
 	panel.BorderSizePixel = 0
 	roundCorners(panel, 12)
@@ -199,7 +200,8 @@ function HudController:Start()
 
 	local guideButton = makeButton(panel, "Памятка кондуктора")
 	guideButton.Name = "OpenGuide"
-	guideButton.Position = UDim2.fromScale(0, 1.07)
+	guideButton.AnchorPoint = Vector2.new(0.5, 0)
+	guideButton.Position = UDim2.fromScale(0.5, 1.07)
 	guideButton.Size = UDim2.fromScale(0.72, 0.38)
 	guideButton.Visible = false
 	local guide = makeGuide(screen)
