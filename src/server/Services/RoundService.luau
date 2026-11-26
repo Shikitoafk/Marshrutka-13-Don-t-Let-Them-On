@@ -32,7 +32,12 @@ function RoundService:Start()
 		warn("[RoundService] Нет RoleService, RouteService или Bus.PrimaryPart — раунды не запустятся")
 		return
 	end
-	driverSeat.CanTouch = false -- садится только водитель и только через Sit()
+	-- Сиденья — только через Sit(): иначе задевший сиденье кондуктор сядет, а без прыжка уже не встанет.
+	for _, seat in bus:GetDescendants() do
+		if seat:IsA("Seat") or seat:IsA("VehicleSeat") then
+			seat.CanTouch = false
+		end
+	end
 
 	local roundState = Remotes.Event("RoundState")
 	local notify = Remotes.Event("Notify")
@@ -71,7 +76,7 @@ function RoundService:Start()
 		end
 		task.delay(Config.RESULTS_SCREEN_TIME, function()
 			roles:ClearRoles()
-			for _, player in riders do
+			for _, player in table.clone(riders) do -- копия: пока ждём персонажа, кто-то может выйти из игры
 				if player.Parent then
 					-- в депо; заодно вернёт прыжок и снимет с сиденья. pcall: иначе ошибка навсегда оставит раунд в Results
 					local ok, err = pcall(player.LoadCharacterAsync, player)
