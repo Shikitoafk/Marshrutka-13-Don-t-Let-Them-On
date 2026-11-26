@@ -18,6 +18,17 @@ local TEXT_COLOR = Color3.fromRGB(250, 244, 231)
 local MUTED_COLOR = Color3.fromRGB(193, 207, 225)
 local AMBER_COLOR = Color3.fromRGB(246, 198, 110)
 local STOP_COUNT = #Config.STOP_NAMES
+local METERS_PER_STUD = 0.28
+local MARKER_HEIGHT = 0.06
+local ANNOUNCEMENT_DURATION = 3
+
+type Stop = { index: number, name: string, phase: string }
+local atmosphere: { PlayStopChime: (any) -> () }? = nil
+
+local function getStops(): Instance?
+	local map = Workspace:FindFirstChild("Map")
+	return if map then map:FindFirstChild("Stops") else nil
+end
 
 local function localizeStopSign(instance: Instance)
 	if not instance:IsA("TextLabel") then
@@ -29,8 +40,7 @@ local function localizeStopSign(instance: Instance)
 	end
 	local spawn = sign.Parent
 	local zone = if spawn and spawn.Name == "Spawn" then spawn.Parent else nil
-	local map = Workspace:FindFirstChild("Map")
-	local stops = if map then map:FindFirstChild("Stops") else nil
+	local stops = getStops()
 	if not zone or not stops or zone.Parent ~= stops then
 		return
 	end
@@ -44,6 +54,26 @@ local function localizeStopSign(instance: Instance)
 		index = index,
 		name = Strings.stopName(index, if type(name) == "string" then name else nil),
 	})
+end
+
+local function getStopZone(index: number): BasePart?
+	local stops = getStops()
+	if stops then
+		for _, zone in stops:GetChildren() do
+			if zone:IsA("BasePart") and zone:GetAttribute("StopIndex") == index then
+				return zone
+			end
+		end
+	end
+	return nil
+end
+
+local function distanceToZone(zone: BasePart, position: Vector3): number
+	-- Расстояние до ближайшего края зоны по плоскости дороги.
+	local point = zone.CFrame:PointToObjectSpace(position)
+	local dx = math.max(math.abs(point.X) - zone.Size.X / 2, 0)
+	local dz = math.max(math.abs(point.Z) - zone.Size.Z / 2, 0)
+	return math.ceil(Vector2.new(dx, dz).Magnitude * METERS_PER_STUD)
 end
 
 local function roundCorners(gui: GuiObject, radius: number)
@@ -175,7 +205,9 @@ local function makeGuide(screen: ScreenGui): Frame
 	return backdrop
 end
 
-function HudController:Init(_controllers: { [string]: any }) end
+function HudController:Init(controllers: { [string]: any })
+	atmosphere = controllers.AtmosphereController
+end
 
 function HudController:Start()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -207,6 +239,20 @@ function HudController:Start()
 	stop.Font = Enum.Font.GothamBold
 	stop.TextTruncate = Enum.TextTruncate.None
 	stop.TextWrapped = true
+
+	local announcement = makeLabel(panel, "StopAnnouncement", UDim2.fromScale(0, 0), UDim2.fromScale(1, 1), 21)
+	announcement.BackgroundColor3 = AMBER_COLOR
+	announcement.BackgroundTransparency = 0
+	announcement.BorderSizePixel = 0
+	announcement.Font = Enum.Font.GothamBold
+	announcement.TextColor3 = PANEL_COLOR
+	announcement.TextXAlignment = Enum.TextXAlignment.Center
+	announcement.TextTruncate = Enum.TextTruncate.None
+	announcement.TextWrapped = true
+	announcement.Visible = false
+	announcement.ZIndex = 2
+	roundCorners(announcement, 8)
+
 	local currency = makeLabel(panel, "Currency", UDim2.fromScale(0.72, 0), UDim2.fromScale(0.24, 1), 17)
 	currency.TextColor3 = AMBER_COLOR
 	currency.TextXAlignment = Enum.TextXAlignment.Right
@@ -230,6 +276,25 @@ function HudController:Start()
 	roundCorners(fill, 5)
 	fill.Parent = track
 
+	local driverHint = makeLabel(panel, "DriverStopHint", UDim2.fromScale(0.2, 1.12), UDim2.fromScale(0.6, 0.72), 19)
+	driverHint.BackgroundTransparency = 0
+	driverHint.BorderSizePixel = 0
+	driverHint.Font = Enum.Font.GothamBold
+	driverHint.TextXAlignment = Enum.TextXAlignment.Center
+	driverHint.Visible = false
+	roundCorners(driverHint, 9)
+
+	local marker = Instance.new("Part")
+	marker.Name = "DriverStopZone"
+	marker.Anchored = true
+	marker.CanCollide = false
+	marker.CanTouch = false
+	marker.CanQuery = false
+	marker.CastShadow = false
+	marker.Color = AMBER_COLOR
+	marker.Material = Enum.Material.Neon
+	marker.Transparency = 0.45
+
 	local guideButton = makeButton(panel, "?")
 	guideButton.Name = "OpenGuide"
 	guideButton.AnchorPoint = Vector2.new(1, 0)
@@ -249,15 +314,93 @@ function HudController:Start()
 	end)
 
 	local roundState = "Lobby"
+	local driver = false
+	local doorsOpen = false
+	local doorsOpenedAtStop = false
+	local currentStop: Stop? = nil
+	local announcementVersion = 0
+
+	local function syncDriverGuidance()
+		local active = currentStop
+		if not screen.Enabled or not driver or not active or active.phase == "Departed" then
+			marker.Parent = nil
+			driverHint.Visible = false
+			return
+		end
+
+		local zone = getStopZone(active.index)
+		if zone then
+			marker.Size = Vector3.new(zone.Size.X, MARKER_HEIGHT, zone.Size.Z)
+			marker.CFrame = zone.CFrame * CFrame.new(0, (zone.Size.Y + MARKER_HEIGHT) / 2, 0)
+			marker.Parent = Workspace
+		else
+			marker.Parent = nil
+		end
+
+		local openDoorsHint = active.phase == "AtStop" and not doorsOpenedAtStop
+		if openDoorsHint then
+			driverHint.Text = Strings.get("hud.open_doors")
+		elseif active.phase == "Approaching" and zone then
+			local map = Workspace:FindFirstChild("Map")
+			local bus = if map then map:FindFirstChild("Bus") else nil
+			local root = if bus and bus:IsA("Model") then bus.PrimaryPart else nil
+			if not root then
+				driverHint.Visible = false
+				return
+			end
+			driverHint.Text = Strings.get("hud.stop_distance", { meters = distanceToZone(zone, root.Position) })
+		else
+			driverHint.Visible = false
+			return
+		end
+		driverHint.BackgroundColor3 = if openDoorsHint then AMBER_COLOR else PANEL_COLOR
+		driverHint.TextColor3 = if openDoorsHint then PANEL_COLOR else AMBER_COLOR
+		driverHint.Visible = true
+	end
+
+	local function hideAnnouncement()
+		announcement.Visible = false
+		stop.Visible = true
+	end
+
+	local function announceStop(name: string)
+		announcementVersion += 1
+		local version = announcementVersion
+		announcement.Text = Strings.get("hud.stop_announcement", { name = name })
+		stop.Visible = false
+		announcement.Visible = true
+		if atmosphere then
+			atmosphere:PlayStopChime()
+		end
+		task.delay(ANNOUNCEMENT_DURATION, function()
+			if version == announcementVersion then
+				hideAnnouncement()
+			end
+		end)
+	end
+
 	local function applyRole(assignedRole: string?)
+		driver = assignedRole == "Driver"
 		guideButton.Visible = assignedRole == "Conductor"
 		if not guideButton.Visible then
 			guide.Visible = false
 		end
+		syncDriverGuidance()
 	end
 
-	local function applyStop(index: number, name: string)
-		stop.Text = `{index}/{STOP_COUNT} · {Strings.stopName(index, name)}`
+	local function applyStop(index: number, name: string, phase: string)
+		local localizedName = Strings.stopName(index, name)
+		local previous = currentStop
+		local changed = not previous or previous.index ~= index or previous.phase ~= phase
+		currentStop = { index = index, name = localizedName, phase = phase }
+		if changed then
+			doorsOpenedAtStop = phase == "AtStop" and doorsOpen
+		end
+		stop.Text = `{index}/{STOP_COUNT} · {localizedName}`
+		if changed and screen.Enabled and phase == "Approaching" then
+			announceStop(localizedName)
+		end
+		syncDriverGuidance()
 	end
 
 	local function applyHealth(value: number)
@@ -272,6 +415,8 @@ function HudController:Start()
 	end
 
 	local function resetTrip()
+		currentStop = nil
+		doorsOpenedAtStop = false
 		stop.Text = `—/{STOP_COUNT}`
 		health.Text = "—"
 		fill.Visible = false
@@ -279,21 +424,26 @@ function HudController:Start()
 	end
 
 	local function applyRoundState(state: string)
-		if state ~= roundState and (state == "Lobby" or state == "Results") then
-			resetTrip()
-		end
+		local changed = state ~= roundState
 		roundState = state
 		screen.Enabled = state == "Running"
+		if changed and (state == "Lobby" or state == "Results") then
+			resetTrip()
+		end
 		if not screen.Enabled then
 			guide.Visible = false
+			announcementVersion += 1
+			hideAnnouncement()
+		elseif changed and currentStop and currentStop.phase == "Approaching" then
+			announceStop(currentStop.name)
 		end
+		syncDriverGuidance()
 	end
 
 	resetTrip()
 
 	Workspace.DescendantAdded:Connect(localizeStopSign)
-	local map = Workspace:FindFirstChild("Map")
-	local stops = if map then map:FindFirstChild("Stops") else nil
+	local stops = getStops()
 	if stops then
 		for _, descendant in stops:GetDescendants() do
 			localizeStopSign(descendant)
@@ -306,12 +456,12 @@ function HudController:Start()
 			applyRoundState(state)
 			if state == "Running" then
 				applyRole("Conductor")
-				applyStop(1, Config.STOP_NAMES[1])
+				applyStop(1, Config.STOP_NAMES[1], "Approaching")
 				applyHealth(Config.BUS_MAX_HEALTH)
 				applyCurrency(0)
 				task.delay(Config.STOP_DOOR_TIME, function()
 					if roundState == "Running" then
-						applyStop(2, Config.STOP_NAMES[2])
+						applyStop(2, Config.STOP_NAMES[2], "Approaching")
 						applyHealth(Config.BUS_MAX_HEALTH - Config.ANOMALY_DAMAGE)
 						applyCurrency(Config.FARE_PER_PASSENGER)
 					end
@@ -324,8 +474,13 @@ function HudController:Start()
 	Remotes.Event("RoundState").OnClientEvent:Connect(applyRoundState)
 	Remotes.Event("RoleAssigned").OnClientEvent:Connect(applyRole)
 	Remotes.Event("StopChanged").OnClientEvent:Connect(applyStop)
-	Remotes.Event("BusState").OnClientEvent:Connect(function(_speed: number, busHealth: number)
+	Remotes.Event("BusState").OnClientEvent:Connect(function(_speed: number, busHealth: number, open: boolean)
+		doorsOpen = open
+		if open and currentStop and currentStop.phase == "AtStop" then
+			doorsOpenedAtStop = true
+		end
 		applyHealth(busHealth)
+		syncDriverGuidance()
 	end)
 	Remotes.Event("CurrencyChanged").OnClientEvent:Connect(applyCurrency)
 end

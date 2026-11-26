@@ -156,18 +156,20 @@ function ResultsController:Start()
 	constrain(toast, Vector2.new(0, 48), Vector2.new(490, 72))
 	toast.Parent = toastGui
 	local message = label(toast, "Message", UDim2.fromScale(0.05, 0.06), UDim2.fromScale(0.9, 0.88), 20)
+	message.TextTruncate = Enum.TextTruncate.None
+	message.TextWrapped = true
 
 	local toastNumber = 0
 	local roundState: string? = nil
 
-	local function notify(text: string, kind: string, parameters: Strings.Parameters?)
-		if type(text) ~= "string" or text == "" then
+	local function notify(key: string, kind: string, parameters: Strings.Parameters?)
+		if type(key) ~= "string" or key == "" then
 			return
 		end
 		toastNumber += 1
 		local currentNumber = toastNumber
 		toast.BackgroundColor3 = TOAST_COLORS[kind] or TOAST_COLORS.Info
-		message.Text = Strings.notify(text, parameters)
+		message.Text = Strings.notify(key, parameters)
 		toast.Visible = true
 		task.delay(TOAST_DURATION, function()
 			if currentNumber == toastNumber then
@@ -224,12 +226,18 @@ function ResultsController:Start()
 			})
 			won = not won
 		end)
-		local kinds = { "Info", "Warn", "Good", "Bad" }
-		local examples = { "notify.next_stop", "notify.doors_open", "notify.anomaly_ejected", "notify.human_ejected" }
+		local examples: { { key: string, kind: string, params: Strings.Parameters? } } = {
+			{ key = "notify.next_stop", kind = "Info" },
+			{ key = "notify.doors_open", kind = "Warn" },
+			{ key = "notify.anomaly_ejected", kind = "Good", params = { anomalyId = "WrongTicket", reward = Config.CATCH_REWARD } },
+			{ key = "notify.human_ejected", kind = "Bad", params = { penalty = Config.WRONG_EJECT_PENALTY } },
+			{ key = "notify.amulet_saved", kind = "Good", params = { player = Players.LocalPlayer.DisplayName } },
+		}
 		local index = 1
 		exampleToast.Activated:Connect(function()
-			notify(examples[index], kinds[index])
-			index = index % #kinds + 1
+			local entry = examples[index]
+			notify(entry.key, entry.kind, entry.params)
+			index = index % #examples + 1
 		end)
 		return
 	end

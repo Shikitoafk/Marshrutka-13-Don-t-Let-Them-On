@@ -12,6 +12,7 @@ local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AtmosphereController = {}
+local stopChime: Sound? = nil
 
 local FLICKER_STEP = 0.25
 local BLACKOUT_DURATION = 1.8
@@ -66,6 +67,10 @@ end
 
 function AtmosphereController:Init(_controllers: { [string]: any }) end
 
+function AtmosphereController:PlayStopChime()
+	replay(stopChime)
+end
+
 function AtmosphereController:Start()
 	setNight()
 	local blackout = Instance.new("ColorCorrectionEffect")
@@ -90,6 +95,7 @@ function AtmosphereController:Start()
 	end
 	local whispers = makeSound("Whispers", soundIds.Whispers, SoundService, 0.53, false)
 	local scare = makeSound("Jumpscare", soundIds.Jumpscare, SoundService, 0.7, false)
+	stopChime = makeSound("StopChime", soundIds.StopChime, SoundService, 0.5, false)
 
 	local roundState: string? = nil
 	local ended = false
@@ -258,6 +264,9 @@ function AtmosphereController:Start()
 		end
 		roundState = state
 		lastDoorsOpen = nil
+		if stopChime and state ~= "Running" then
+			stopChime:Stop()
+		end
 		if state ~= "Results" then
 			ended = false
 			clearEffects()
