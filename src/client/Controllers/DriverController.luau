@@ -11,6 +11,7 @@ local Workspace = game:GetService("Workspace")
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local DriverController = {}
+local atmosphere: { PlayHorn: (any) -> () }? = nil
 
 local ACTION_NAME = "MarshrutkaDriverInput"
 local CAMERA_NAME = "MarshrutkaDriverCamera"
@@ -61,7 +62,9 @@ local function getDriverSeat(): BasePart?
 	return nil
 end
 
-function DriverController:Init(_controllers: { [string]: any }) end
+function DriverController:Init(controllers: { [string]: any })
+	atmosphere = controllers.AtmosphereController
+end
 
 function DriverController:Start()
 	local player = Players.LocalPlayer
@@ -110,6 +113,13 @@ function DriverController:Start()
 	local lockedHumanoid: Humanoid? = nil
 	local jumpingWasEnabled = true
 	local humanoidAdded: RBXScriptConnection? = nil
+
+	local function soundHorn()
+		requests.horn()
+		if atmosphere then
+			atmosphere:PlayHorn()
+		end
+	end
 
 	local function restoreJump()
 		if humanoidAdded then
@@ -222,7 +232,7 @@ function DriverController:Start()
 			elseif key == Enum.KeyCode.E then
 				requests.doors(not doorsOpen)
 			elseif key == Enum.KeyCode.H then
-				requests.horn()
+				soundHorn()
 			end
 		end
 		return if UserInputService:GetFocusedTextBox() then Enum.ContextActionResult.Pass else Enum.ContextActionResult.Sink
@@ -297,7 +307,7 @@ function DriverController:Start()
 	end)
 	horn.Activated:Connect(function()
 		if screen.Enabled then
-			requests.horn()
+			soundHorn()
 		end
 	end)
 	UserInputService.WindowFocusReleased:Connect(clearInput)
