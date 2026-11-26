@@ -29,6 +29,9 @@ local function send(name: string, data: { [string]: any })
 	for _, player in round:GetRiders() do
 		scareEvent:FireClient(player, name, data)
 	end
+	if game:GetService("RunService"):IsStudio() then
+		print(`[Scare] {name}`) -- пока нет клиента (T19), проверять по этим строкам
+	end
 end
 
 -- Силуэт на заднем сиденье — только вместе с Blackout (AnomalyService зовёт при эскалации).
