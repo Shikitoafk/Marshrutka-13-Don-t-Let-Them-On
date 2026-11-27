@@ -192,31 +192,32 @@ function HudController:Start()
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0)
 	panel.Position = UDim2.fromScale(0.5, 0.035)
-	panel.Size = UDim2.fromScale(0.85, 0.24)
+	panel.Size = UDim2.fromScale(0.94, 0.09)
 	panel.BackgroundColor3 = PANEL_COLOR
 	panel.BorderSizePixel = 0
 	roundCorners(panel, 12)
 	panel.Parent = screen
 
 	local sizeLimit = Instance.new("UISizeConstraint")
-	sizeLimit.MinSize = Vector2.new(0, 108)
-	sizeLimit.MaxSize = Vector2.new(360, 144)
+	sizeLimit.MinSize = Vector2.new(0, 44)
+	sizeLimit.MaxSize = Vector2.new(620, 50)
 	sizeLimit.Parent = panel
 
-	local stop = makeLabel(panel, "Stop", UDim2.fromScale(0.05, 0.055), UDim2.fromScale(0.9, 0.29), 23)
+	local stop = makeLabel(panel, "Stop", UDim2.fromScale(0.035, 0.04), UDim2.fromScale(0.47, 0.92), 17)
 	stop.Font = Enum.Font.GothamBold
-	local role = makeLabel(panel, "Role", UDim2.fromScale(0.05, 0.36), UDim2.fromScale(0.52, 0.21), 18)
-	role.TextColor3 = MUTED_COLOR
-	local currency = makeLabel(panel, "Currency", UDim2.fromScale(0.58, 0.36), UDim2.fromScale(0.37, 0.21), 19)
+	stop.TextTruncate = Enum.TextTruncate.None
+	stop.TextWrapped = true
+	local currency = makeLabel(panel, "Currency", UDim2.fromScale(0.72, 0), UDim2.fromScale(0.24, 1), 17)
 	currency.TextColor3 = AMBER_COLOR
 	currency.TextXAlignment = Enum.TextXAlignment.Right
 	currency.Text = "— ₸"
 
-	local health = makeLabel(panel, "Health", UDim2.fromScale(0.05, 0.6), UDim2.fromScale(0.9, 0.2), 18)
+	local health = makeLabel(panel, "Health", UDim2.fromScale(0.52, 0.1), UDim2.fromScale(0.19, 0.65), 17)
 	health.TextColor3 = MUTED_COLOR
+	health.TextXAlignment = Enum.TextXAlignment.Center
 	local track = Instance.new("Frame")
-	track.Position = UDim2.fromScale(0.05, 0.85)
-	track.Size = UDim2.fromScale(0.9, 0.075)
+	track.Position = UDim2.fromScale(0.53, 0.79)
+	track.Size = UDim2.fromScale(0.17, 0.085)
 	track.BackgroundColor3 = Color3.fromRGB(54, 69, 87)
 	track.BorderSizePixel = 0
 	roundCorners(track, 5)
@@ -229,11 +230,16 @@ function HudController:Start()
 	roundCorners(fill, 5)
 	fill.Parent = track
 
-	local guideButton = makeButton(panel, Strings.get("hud.guide"))
+	local guideButton = makeButton(panel, "?")
 	guideButton.Name = "OpenGuide"
-	guideButton.AnchorPoint = Vector2.new(0.5, 0)
-	guideButton.Position = UDim2.fromScale(0.5, 1.07)
-	guideButton.Size = UDim2.fromScale(0.72, 0.38)
+	guideButton.AnchorPoint = Vector2.new(1, 0)
+	guideButton.Position = UDim2.fromScale(1, 1.12)
+	guideButton.Size = UDim2.fromScale(0.14, 1)
+	local guideSize = guideButton:FindFirstChildOfClass("UISizeConstraint")
+	if guideSize then
+		guideSize.MinSize = Vector2.new(48, 48)
+		guideSize.MaxSize = Vector2.new(48, 48)
+	end
 	guideButton.Visible = false
 	local guide = makeGuide(screen)
 	guideButton.Activated:Connect(function()
@@ -244,13 +250,6 @@ function HudController:Start()
 
 	local roundState = "Lobby"
 	local function applyRole(assignedRole: string?)
-		if assignedRole == "Driver" then
-			role.Text = Strings.get("hud.driver")
-		elseif assignedRole == "Conductor" then
-			role.Text = Strings.get("hud.conductor")
-		else
-			role.Text = Strings.get("hud.role_pending")
-		end
 		guideButton.Visible = assignedRole == "Conductor"
 		if not guideButton.Visible then
 			guide.Visible = false
@@ -258,12 +257,12 @@ function HudController:Start()
 	end
 
 	local function applyStop(index: number, name: string)
-		stop.Text = Strings.get("hud.stop", { index = index, total = STOP_COUNT, name = Strings.stopName(index, name) })
+		stop.Text = `{index}/{STOP_COUNT} · {Strings.stopName(index, name)}`
 	end
 
 	local function applyHealth(value: number)
 		local clampedHealth = math.clamp(value, 0, Config.BUS_MAX_HEALTH)
-		health.Text = Strings.get("hud.health", { value = math.round(clampedHealth), max = Config.BUS_MAX_HEALTH })
+		health.Text = `{math.round(clampedHealth)}/{Config.BUS_MAX_HEALTH}`
 		fill.Size = UDim2.fromScale(clampedHealth / Config.BUS_MAX_HEALTH, 1)
 		fill.Visible = clampedHealth > 0
 	end
@@ -273,8 +272,8 @@ function HudController:Start()
 	end
 
 	local function resetTrip()
-		stop.Text = Strings.get("hud.stop_pending", { total = STOP_COUNT })
-		health.Text = Strings.get("hud.health_pending")
+		stop.Text = `—/{STOP_COUNT}`
+		health.Text = "—"
 		fill.Visible = false
 		applyRole(nil)
 	end
