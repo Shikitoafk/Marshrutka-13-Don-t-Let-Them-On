@@ -162,8 +162,10 @@ ServerStorage
 | `RouteService` | `StartRun()`, `ResetRun()`, `StopRun()`, `IsFinished(): boolean` | `ResetRun` — только когда в салоне никого; `StopRun` — поражение, плавное торможение |
 | `RouteService` | сигналы `StopChanged(index, name, phase)`, `DoorsChanged(open)` | для серверных сервисов (клиентам уходят ремоуты) |
 | `RoundService` | `GetRiders(): {Player}`, `EndRun(won)` | копия списка игроков рейса |
+| `ScareEventService` | `OnEscalation(effect)`, `Jumpscare()` | T18 |
+| модуль `src/server/RateLimit.luau` | `RateLimit.new(perSecond)` → `allow(player): boolean` | общий для серверных ремоутов (T13) |
 | `PassengerService` | `Clear()`, `Eject(id): boolean`, `GetModel(id)`, `GetOnboard()`, `KeepAboard(id)` | `GetOnboard` — копия `[id] = Model` |
-| `AnomalyService` | `OnBoarded(id, model): boolean`, `FinishRun(won)`, `GetHealth()` | `OnBoarded` → `true`, если аномалия (сама не выйдет) |
+| `AnomalyService` | `OnBoarded(id, model): boolean`, `FinishRun(won)`, `GetHealth()`, `CountAboard(): number` | `OnBoarded` → `true`, если аномалия (сама не выйдет) |
 | `AnomalyService` | `GetHealth(): number` | Прочность автобуса |
 | `MonetizationService` | `HasVIP(player): boolean`, `ConsumeAmulet(player): boolean` | `ConsumeAmulet` ходит в DataStore — **ждёт**; вызывать один раз при прочности 0 |
 

@@ -148,13 +148,14 @@ local function buildBus(pivot: CFrame): Model
 	-- Свет сам по себе в папке не светит, поэтому каждый PointLight — внутри плафона.
 	local lights = folder(bus, "InteriorLights")
 	for i, z in { -10, 0, 10 } do
+		-- Тусклый свет (GDD «Страх»: темно, фонарь реально нужен): плафон без неонового свечения, лампа слабая.
 		local lamp = make("Part", lights, `Lamp{i}`, Vector3.new(2, 0.2, 1.5), at(0, roofY - 0.1, z), WARM)
-		lamp.Material = Enum.Material.Neon
+		lamp.Material = Enum.Material.SmoothPlastic
 		lamp.CanCollide = false
 		local light = Instance.new("PointLight")
 		light.Color = WARM
-		light.Range = 14
-		light.Brightness = 1.5
+		light.Range = 12
+		light.Brightness = 0.5
 		light.Shadows = false
 		light.Parent = lamp
 	end
@@ -180,6 +181,176 @@ local function buildBus(pivot: CFrame): Model
 	end
 
 	return bus
+end
+
+-- Ночной город вокруг дороги (T20). Только декор: Anchored, без запросов и касаний, без теней (телефоны).
+local CITY_SEED = 1313 -- один и тот же город при каждом запуске
+local LAMP_STEP = 120 -- studs между фонарными столбами
+local STOP_LIGHTS_MAX = 16 -- горящие фонари у остановок (по 1–2 на остановку)
+local RANDOM_LIGHTS_MAX = 4 -- плюс горящие где-то на перегоне; остальные столбы тёмные
+local LIGHTS_LIMIT = 25 -- всего источников света на карте вместе с салоном (телефоны)
+local FLICKER_LIGHTS = 4 -- сколько горящих фонарей мигает
+local HOUSE_DARK = { Color3.fromRGB(28, 28, 32), Color3.fromRGB(36, 34, 33), Color3.fromRGB(24, 27, 30), Color3.fromRGB(40, 38, 42) }
+local WINDOW_LIT = { Color3.fromRGB(255, 200, 110), Color3.fromRGB(150, 190, 255), Color3.fromRGB(255, 170, 90) }
+local SODIUM = Color3.fromRGB(255, 170, 90) -- натриевый фонарь
+local METAL = Color3.fromRGB(45, 45, 50)
+local WOOD = Color3.fromRGB(60, 45, 35)
+
+local function decor(parent: Instance, name: string, size: Vector3, cframe: CFrame, color: Color3, solid: boolean?): BasePart
+	local p = make("Part", parent, name, size, cframe, color)
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CanCollide = solid == true
+	p.CastShadow = false
+	return p
+end
+
+-- Мигание: свет почти всё время горит и изредка гаснет на миг. Без скриптов в карте — цикл в этом сервисе.
+local function flicker(light: PointLight, head: BasePart, rng: Random)
+	task.spawn(function()
+		while light.Parent do
+			task.wait(if light.Enabled then rng:NextNumber(0.4, 4) else rng:NextNumber(0.05, 0.3))
+			light.Enabled = not light.Enabled
+			head.Material = if light.Enabled then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		end
+	end)
+end
+
+local function buildCity(map: Instance, points: { Vector3 }, stopFrames: { CFrame })
+	local rng = Random.new(CITY_SEED)
+	local city = folder(map, "City")
+
+	-- Положение на дороге в d studs от начала: CFrame смотрит по ходу, право = +X (сторона остановок).
+	local function roadFrame(d: number): CFrame
+		for i = 1, #points - 1 do
+			local a, b = points[i], points[i + 1]
+			local len = (b - a).Magnitude
+			if d <= len or i == #points - 1 then
+				return CFrame.lookAt(a:Lerp(b, math.clamp(d / len, 0, 1)), b)
+			end
+			d -= len
+		end
+		return CFrame.new(points[1])
+	end
+	local total = 0
+	for i = 1, #points - 1 do
+		total += (points[i + 1] - points[i]).Magnitude
+	end
+	local function nearStop(frame: CFrame, radius: number): boolean
+		for _, s in stopFrames do
+			if (s.Position - frame.Position).Magnitude < radius then
+				return true
+			end
+		end
+		return false
+	end
+	local ground = GROUND_TOP - ROAD_TOP -- высота земли относительно поверхности дороги
+
+	-- Дома: тёмные коробки разной высоты по обе стороны, у некоторых светится окно-другое. Не ближе 32 и не дальше ~90 studs.
+	for d = 30, total, 55 do
+		local frame = roadFrame(d)
+		if not nearStop(frame, 60) then
+			for _, side in { -1, 1 } do
+				if rng:NextNumber() < 0.8 then
+					local w, depth, h = rng:NextNumber(14, 26), rng:NextNumber(12, 22), rng:NextNumber(10, 40)
+					local edge = rng:NextNumber(32, 60)
+					local house = decor(city, "House", Vector3.new(depth, h, w), frame * CFrame.new(side * (edge + depth / 2), ground + h / 2, 0), HOUSE_DARK[rng:NextInteger(1, #HOUSE_DARK)], true)
+					if rng:NextNumber() < 0.3 then
+						for _ = 1, rng:NextInteger(1, 2) do
+							local spot = CFrame.new(-side * (depth / 2 + 0.1), rng:NextNumber(3, h - 3) - h / 2, rng:NextNumber(-w / 2 + 2, w / 2 - 2))
+							decor(city, "Window", Vector3.new(0.2, 2.5, 2), house.CFrame * spot, WINDOW_LIT[rng:NextInteger(1, #WINDOW_LIT)]).Material = Enum.Material.Neon
+						end
+					end
+				end
+			end
+		end
+	end
+
+	-- Заборы вдоль дороги (местами), телеграфные столбы справа за тротуаром.
+	for i = 1, #points - 1 do
+		local a, b = points[i], points[i + 1]
+		local mid = CFrame.lookAt((a + b) / 2, b)
+		if not nearStop(mid, 90) then
+			for _, side in { -1, 1 } do
+				if rng:NextNumber() < 0.4 then
+					decor(city, "Fence", Vector3.new(0.3, 3.5, (b - a).Magnitude * 0.8), mid * CFrame.new(side * 24, ground + 1.75, 0), WOOD, true)
+				end
+			end
+			decor(city, "Pole", Vector3.new(0.7, 18, 0.7), mid * CFrame.new(26, ground + 9, 0), WOOD, true)
+		end
+	end
+
+	-- Фонари слева: столб + кронштейн + плафон. Горят у остановок и изредка на перегоне, часть мигает.
+	local stopLit, randomLit, flickering = 0, 0, 0
+	for d = 0, total, LAMP_STEP do
+		local frame = roadFrame(d)
+		decor(city, "LampPost", Vector3.new(0.5, 14, 0.5), frame * CFrame.new(-12, ground + 7, 0), METAL, true)
+		decor(city, "LampArm", Vector3.new(4, 0.3, 0.3), frame * CFrame.new(-10, ground + 13.8, 0), METAL)
+		local near = nearStop(frame, 80)
+		local lit = (near and stopLit < STOP_LIGHTS_MAX) or (not near and randomLit < RANDOM_LIGHTS_MAX and rng:NextNumber() < 0.1)
+		local head = decor(city, "LampHead", Vector3.new(1.6, 0.5, 0.9), frame * CFrame.new(-8.2, ground + 13.5, 0), if lit then SODIUM else METAL)
+		if lit then
+			if near then
+				stopLit += 1
+			else
+				randomLit += 1
+			end
+			head.Material = Enum.Material.Neon
+			local light = Instance.new("PointLight")
+			light.Color = SODIUM
+			light.Range = 40
+			light.Brightness = 1.2
+			light.Shadows = false
+			light.Parent = head
+			if flickering < FLICKER_LIGHTS and rng:NextNumber() < 0.3 then
+				flickering += 1
+				flicker(light, head, rng)
+			end
+		end
+	end
+
+	-- Остановки: навес с лавкой и табличкой за тротуаром; у тематических — свои декорации.
+	for k, frame in stopFrames do
+		local name = Config.STOP_NAMES[k]
+		local walk = 0.4 -- верх тротуара относительно дороги
+		decor(city, "ShelterWall", Vector3.new(0.4, 7, 12), frame * CFrame.new(19.5, walk + 3.5, 0), METAL, true).Transparency = 0.4
+		decor(city, "ShelterRoof", Vector3.new(7, 0.4, 13), frame * CFrame.new(16.2, walk + 7.2, 0), METAL, true)
+		for _, z in { -6.3, 6.3 } do
+			decor(city, "ShelterPost", Vector3.new(0.3, 7, 0.3), frame * CFrame.new(13, walk + 3.5, z), METAL)
+		end
+		decor(city, "Bench", Vector3.new(1.6, 0.4, 7), frame * CFrame.new(18.2, walk + 1.6, 0), WOOD, true)
+		decor(city, "SignPost", Vector3.new(0.3, 7, 0.3), frame * CFrame.new(11.5, walk + 3.5, 8), METAL)
+		decor(city, "SignPlate", Vector3.new(0.2, 2, 2), frame * CFrame.new(11.5, walk + 6.5, 8), SIGN)
+
+		if string.find(name, "Кладбище") then
+			for _, x in { 28, 60 } do
+				decor(city, "CemeteryWall", Vector3.new(0.4, 3, 56), frame * CFrame.new(x, ground + 1.5, 0), METAL, true)
+			end
+			for _, z in { -28, 28 } do
+				decor(city, "CemeteryWall", Vector3.new(32, 3, 0.4), frame * CFrame.new(44, ground + 1.5, z), METAL, true)
+			end
+			for _, x in { 34, 42, 50, 56 } do
+				for _, z in { -20, -8, 4, 16 } do
+					local tilt = CFrame.Angles(0, rng:NextNumber(-0.3, 0.3), rng:NextNumber(-0.15, 0.15)) -- покосившиеся
+					local base = frame * CFrame.new(x, ground, z) * tilt
+					decor(city, "Cross", Vector3.new(0.5, 4, 0.5), base * CFrame.new(0, 2, 0), Color3.fromRGB(150, 150, 145), true)
+					decor(city, "Cross", Vector3.new(0.5, 0.5, 2), base * CFrame.new(0, 3, 0), Color3.fromRGB(150, 150, 145))
+				end
+			end
+		elseif string.find(name, "Завод") then
+			decor(city, "Factory", Vector3.new(30, 24, 50), frame * CFrame.new(58, ground + 12, 0), HOUSE_DARK[1], true)
+			for _, z in { -14, 0, 14 } do
+				local chimney = decor(city, "Chimney", Vector3.new(50, 5, 5), frame * CFrame.new(68, ground + 25, z) * CFrame.Angles(0, 0, math.pi / 2), Color3.fromRGB(70, 55, 50), true) :: Part
+				chimney.Shape = Enum.PartType.Cylinder
+				decor(city, "ChimneyLight", Vector3.new(0.6, 0.6, 0.6), frame * CFrame.new(68, ground + 50.5, z), Color3.fromRGB(255, 40, 40)).Material = Enum.Material.Neon
+			end
+		elseif string.find(name, "Больница") then
+			decor(city, "Hospital", Vector3.new(24, 20, 44), frame * CFrame.new(52, ground + 10, 0), Color3.fromRGB(215, 215, 210), true)
+			local facade = frame * CFrame.new(39.8, ground + 15, 0) -- стена, обращённая к дороге
+			decor(city, "RedCross", Vector3.new(0.3, 8, 2.4), facade, Color3.fromRGB(220, 30, 30)).Material = Enum.Material.Neon
+			decor(city, "RedCross", Vector3.new(0.3, 2.4, 8), facade, Color3.fromRGB(220, 30, 30)).Material = Enum.Material.Neon
+		end
+	end
 end
 
 function GreyboxService:Init(_services: { [string]: any })
@@ -215,9 +386,11 @@ function GreyboxService:Init(_services: { [string]: any })
 
 	-- Остановка k — в середине каждого SEGMENTS_PER_LEG-го отрезка; последняя (Конечная) — на последнем.
 	local stops = folder(map, "Stops")
+	local stopFrames: { CFrame } = {}
 	for k, stopName in Config.STOP_NAMES do
 		local a, b = points[k * SEGMENTS_PER_LEG], points[k * SEGMENTS_PER_LEG + 1]
 		local cf = CFrame.lookAt((a + b) / 2, b)
+		stopFrames[k] = cf
 		local zone = make("Part", stops, `Stop{k}`, Vector3.new(ROAD_WIDTH, 0.2, Config.STOP_ZONE_LENGTH), cf * CFrame.new(0, 0.1, 0), STOP_ZONE)
 		zone.Transparency = 0.5
 		zone.CanCollide = false
@@ -253,6 +426,8 @@ function GreyboxService:Init(_services: { [string]: any })
 		make("Part", map, "Ground", Vector3.new(tileLength, 2, 2 * CURVE_AMPLITUDE + 400), CFrame.new(startX + tileLength * (t - 0.5), GROUND_TOP - 1, 0), GRASS)
 	end
 
+	buildCity(map, points, stopFrames)
+
 	local bus = buildBus(CFrame.lookAt(first, points[2]))
 	bus.Parent = map
 
@@ -265,9 +440,18 @@ function GreyboxService:Init(_services: { [string]: any })
 	assert(#route:GetChildren() == #points and #stops:GetChildren() == #Config.STOP_NAMES, "Greybox: маршрут собран не полностью")
 	local seats = bus:FindFirstChild("Seats")
 	assert(bus.PrimaryPart and seats and #seats:GetChildren() == 10 and bus:FindFirstChild("DriverSeat"), "Greybox: автобус собран не полностью")
+	local lights, parts = 0, 0
+	for _, item in map:GetDescendants() do
+		if item:IsA("Light") then
+			lights += 1
+		elseif item:IsA("BasePart") then
+			parts += 1
+		end
+	end
+	assert(lights <= LIGHTS_LIMIT, `Greybox: источников света {lights} > {LIGHTS_LIMIT} — на телефонах будет тормозить`)
 
 	map.Parent = Workspace
-	print(`[Greybox] Тестовая карта готова: {#points} точек, {#Config.STOP_NAMES} остановок, автобус с 10 местами`)
+	print(`[Greybox] Тестовая карта готова: {#points} точек, {#Config.STOP_NAMES} остановок, деталей {parts}, источников света {lights}`)
 end
 
 return GreyboxService

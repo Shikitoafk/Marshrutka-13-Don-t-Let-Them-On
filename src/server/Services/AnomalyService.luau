@@ -8,11 +8,13 @@ local RunService = game:GetService("RunService")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
 
 type AnomalyType = AnomalyTypes.AnomalyType
 
 local MAX_ID_LENGTH = 64 -- GUID короче; длиннее — мусор от клиента
+local TOOL_RATE = 5 -- Inspect/Eject в секунду на игрока: сверх — отбрасываем до проверок
 local WRONG_ROUTES = { "№31", "№18", "№130" }
 
 local AnomalyService = {}
@@ -23,6 +25,7 @@ local tickets: { [string]: { [string]: string } } = {} -- [PassengerId] = {Route
 local boardedAt: { [string]: number } = {} -- [PassengerId аномалии] = остановка посадки: бьёт с отъезда от следующей
 local twinOf: { [string]: string } = {} -- [PassengerId двойника] = PassengerId оригинала
 local atStop = 0 -- на какой остановке стоим (для boardedAt)
+local runActive = false -- проверять и высаживать можно только в рейсе (не на экране итогов)
 local health = Config.BUS_MAX_HEALTH
 local hits = 0 -- сколько раз автобус получил урон за рейс (уровень эскалации)
 local amuletTried = false
@@ -92,6 +95,14 @@ local function pickType(canTwin: boolean): AnomalyType
 	return AnomalyTypes[1]
 end
 
+local function twinOfValues(): { string }
+	local result: { string } = {}
+	for _, originalId in twinOf do
+		table.insert(result, originalId)
+	end
+	return result
+end
+
 -- Двойник: цвета частей и одежда как у оригинала.
 local function copyLook(from: Model, to: Model)
 	for _, item in to:GetDescendants() do
@@ -122,6 +133,19 @@ function AnomalyService:GetHealth(): number
 	return health
 end
 
+-- Сколько аномалий сейчас в салоне (ScareEventService: больше пугалок, когда они рядом).
+function AnomalyService:CountAboard(): number
+	local passengers = registry.PassengerService
+	local aboard: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
+	local count = 0
+	for id in truth do
+		if aboard[id] then
+			count += 1
+		end
+	end
+	return count
+end
+
 -- PassengerService зовёт при посадке. true — аномалия (сама не выйдет).
 function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	earnedPlus += Config.FARE_PER_PASSENGER -- плату начисляет PassengerService, здесь только считаем для итогов
@@ -134,9 +158,16 @@ function AnomalyService:OnBoarded(id: string, model: Model): boolean
 		return false
 	end
 	local passengers = registry.PassengerService
-	local others: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
-	others[id] = nil
-	local originalId, original = next(others)
+	-- Оригинал для двойника — только обычный пассажир: не аномалия и не чей-то уже оригинал.
+	local candidates: { string } = {}
+	local aboard: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
+	for otherId in aboard do
+		if otherId ~= id and not truth[otherId] and not table.find(twinOfValues(), otherId) then
+			table.insert(candidates, otherId)
+		end
+	end
+	local originalId: string? = if #candidates > 0 then candidates[math.random(#candidates)] else nil
+	local original = if originalId then aboard[originalId] else nil
 	local kind = pickType(originalId ~= nil)
 	truth[id] = kind
 	boardedAt[id] = atStop
@@ -158,6 +189,7 @@ end
 
 -- RoundService зовёт в конце рейса (победа или поражение): итоги каждому, бонус, статистика.
 function AnomalyService:FinishRun(won: boolean)
+	runActive = false
 	local data, shop = registry.DataService, registry.MonetizationService
 	local bonus = if won then Config.FINISH_BONUS else 0
 	for _, player in riders() do
@@ -196,8 +228,14 @@ function AnomalyService:Start()
 	-- Раздельные кулдауны: «проверил билет → сразу высадил» не должно теряться из-за задержки сети.
 	local lastInspectAt: { [Player]: number } = {}
 	local lastEjectAt: { [Player]: number } = {}
+	local allowInspect, allowEject = RateLimit.new(TOOL_RATE), RateLimit.new(TOOL_RATE)
+	game:GetService("Players").PlayerRemoving:Connect(function(player)
+		lastInspectAt[player] = nil
+		lastEjectAt[player] = nil
+	end)
 
 	local function resetRun()
+		runActive = true
 		table.clear(truth)
 		table.clear(tickets)
 		table.clear(boardedAt)
@@ -240,7 +278,12 @@ function AnomalyService:Start()
 		health = math.max(0, health - Config.ANOMALY_DAMAGE)
 		hits += 1
 		local effects = Config.ESCALATION_EFFECTS
-		escalated:FireAllClients(hits, effects[math.min(hits, #effects)])
+		local effect = effects[math.min(hits, #effects)]
+		escalated:FireAllClients(hits, effect)
+		local scares = registry.ScareEventService
+		if scares then
+			scares:OnEscalation(effect) -- Blackout → силуэт на заднем сиденье
+		end
 		log(`урон: прочность {health}`)
 		if health <= 0 then
 			onBroken()
@@ -285,7 +328,7 @@ function AnomalyService:Start()
 	end
 
 	local function allowed(player: Player, id: unknown, last: { [Player]: number }): boolean
-		if type(id) ~= "string" or #id > MAX_ID_LENGTH or time() - (last[player] or 0) < Config.INSPECT_COOLDOWN then
+		if not runActive or type(id) ~= "string" or #id > MAX_ID_LENGTH or time() - (last[player] or 0) < Config.INSPECT_COOLDOWN then
 			return false
 		end
 		if not conductorNear(player, id) then
@@ -296,7 +339,7 @@ function AnomalyService:Start()
 	end
 
 	Remotes.Event("InspectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown, tool: unknown)
-		if (tool ~= "Ticket" and tool ~= "Flashlight") or not allowed(player, id, lastInspectAt) then
+		if not allowInspect(player) or (tool ~= "Ticket" and tool ~= "Flashlight") or not allowed(player, id, lastInspectAt) then
 			return
 		end
 		local passengerId = id :: string
@@ -305,7 +348,7 @@ function AnomalyService:Start()
 	end)
 
 	Remotes.Event("EjectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown)
-		if not allowed(player, id, lastEjectAt) then
+		if not allowEject(player) or not allowed(player, id, lastEjectAt) then
 			return
 		end
 		local passengerId = id :: string
