@@ -20,16 +20,16 @@ local function setNight()
 	Lighting.ClockTime = 0.3
 	Lighting.Brightness = 1.4
 	Lighting.Ambient = Color3.fromRGB(58, 64, 87)
-	Lighting.OutdoorAmbient = Color3.fromRGB(58, 76, 103)
-	Lighting.FogColor = Color3.fromRGB(43, 55, 75)
+	Lighting.OutdoorAmbient = Color3.fromRGB(25, 30, 45)
+	Lighting.FogColor = Color3.fromRGB(10, 12, 20)
 	Lighting.FogStart = 38
 	Lighting.FogEnd = 165
 
 	-- Atmosphere заменяет обычный туман Lighting, если он уже есть в плейсе.
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	if atmosphere then
-		atmosphere.Color = Lighting.FogColor
-		atmosphere.Decay = Color3.fromRGB(68, 84, 110)
+		atmosphere.Color = Color3.fromRGB(38, 48, 70)
+		atmosphere.Decay = Lighting.FogColor
 		atmosphere.Density = 0.37
 		atmosphere.Haze = 1.3
 		atmosphere.Glare = 0
