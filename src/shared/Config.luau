@@ -76,6 +76,7 @@ local Config = {
 		PhoneRing = "rbxassetid://0", -- телефон звонит под сиденьем
 		StopChime = "rbxassetid://0", -- «динь» перед объявлением остановки
 		Music = "rbxassetid://0", -- тихая жуткая музыка в рейсе (loop)
+		GrandmaLaugh = "rbxassetid://0", -- тихий смешок бабушки (V02)
 	},
 
 	-- Пугалки (ScareEventService): сколько событий на перегон
@@ -96,6 +97,27 @@ local Config = {
 	GHOST_FLICKER_COOLDOWN = 12,
 	REVIVE_FREE_PER_NIGHT = 1, -- бесплатных возрождений на команду за рейс
 	PRODUCT_REVIVE = 0, -- Developer Product «Вернуться в салон»
+	STOP_REQUEST_ASK_MIN = 8, -- сек после отъезда, когда «пассажир» может попросить остановить (V02)
+	STOP_REQUEST_ASK_MAX = 20,
+	ALL_TAKEN_GRACE = 10, -- сек: забрали всех — ждём возвращения, потом поражение (V04)
+
+	-- ===== V09: косметика =====
+	-- Price — тенге (0 = бесплатно с начала); ProductId/GamepassId — за Robux (0 = пока не продаётся)
+	COSMETICS = {
+		Flashlight = {
+			{ Id = "Classic", Price = 0 },
+			{ Id = "Warm", Price = 500 },
+			{ Id = "Neon", Price = 1500 },
+			{ Id = "Alarm", Price = 0, GamepassId = 0 }, -- красный «тревога», Robux
+			{ Id = "Rainbow", Price = 0, GamepassId = 0 }, -- радужный, Robux
+		},
+		TakenEffect = {
+			{ Id = "Fade", Price = 0 }, -- растворяется
+			{ Id = "Hands", Price = 1000 }, -- чёрные руки утягивают под пол
+			{ Id = "Ash", Price = 0, GamepassId = 0 }, -- вспышка и пепел, Robux
+			{ Id = "Ceiling", Price = 0, GamepassId = 0 }, -- утащило в потолок, Robux
+		},
+	},
 	BADGES = { Night1 = 0, Night2 = 0, Night3 = 0, Night4 = 0, Night5 = 0, PerfectNight = 0 }, -- ID бейджей
 
 	-- DataStore

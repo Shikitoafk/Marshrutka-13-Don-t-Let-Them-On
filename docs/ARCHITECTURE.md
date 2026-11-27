@@ -40,7 +40,7 @@
 | Модуль | Отвечает за |
 |---|---|
 | `NightService` | Текущая ночь (выбор лидером в лобби), рассылка `NightInfo`, пул аномалий из `Nights.luau`, звёзды и разблокировка через DataService, контролёр, блэкаут-«замри», просьбы остановиться |
-| `GhostService` | «Забрали» → призрак (`PlayerTaken`, `GhostState`), действия призраков (`GhostAction`), возрождение (`ReviveRequest`/продукт), проигрыш, если призраки все |
+| `GhostService` | API: `IsGhost`, `CountTaken`, `Take`, `Revive(player): boolean`, `GetRevivesLeft(): number`. «Забрали» → призрак (`PlayerTaken`, `GhostState`), действия призраков (`GhostAction`), возрождение (`ReviveRequest`/продукт), проигрыш, если призраки все |
 
 ### Сервер (владелец: Codex)
 
@@ -235,7 +235,7 @@ ServerStorage
 
 - `src/shared/Nights.luau` — данные ночей (владелец оркестратор). `NightService` берёт отсюда аномалии/шанс/события.
 - **Выбор ночи:** первый нажавший «Готов» — лидер рейса, его `NightSelect(n)` принимается, если `n ≤ UnlockedNight` лидера.
-  `RoundState.data.Night` — выбранная ночь (в Lobby/Countdown).
+  `RoundState.data.Night` — выбранная ночь, `RoundState.data.Leader` — UserId лидера (в Lobby/Countdown; принято по PR #28).
 - **Профиль (DataService, CX):** новые поля `UnlockedNight: number` (по умолчанию 1), `BestStars: {[string]: number}`
   (ключ — номер ночи строкой). API: `GetUnlockedNight(player)`, `RecordNight(player, night, stars)` (сам разблокирует
   следующую и выдаёт бейджи из `Config.BADGES`; 0 — не выдавать).
@@ -244,6 +244,9 @@ ServerStorage
 - **Призраки:** персонаж призрака остаётся в салоне, но полупрозрачный и без коллизий (сервер), инструменты кондуктора
   ему недоступны (сервер проверяет). `GhostAction("Knock", passengerId)` — стук в окно рядом с пассажиром (видят живые,
   через `ScareEvent WindowKnock` по месту), `GhostAction("Flicker")` — мигание света; кулдауны в Config.
+- **Возвращение (принято по #31/#33):** `GhostState.data = {RevivesLeft, ProductId, Reason}`. `ReviveRequest` слушают двое:
+  `GhostService` тратит бесплатное, пока `RevivesLeft > 0`; `MonetizationService` тратит купленный заряд, только когда
+  `GhostService:GetRevivesLeft() == 0`. Чек `PRODUCT_REVIVE` → заряд в профиле → `GhostService:Revive(player)`.
 - **Безопасные (Safe):** `EjectPassenger` на Safe → штраф `SAFE_EJECT_PENALTY`, `Notify notify.safe_ejected`, эффект `LightsFlicker`.
 - **Особые (Special):** `Standing` — если сервер получил `InspectPassenger(id, "Flashlight")` от игрока по стоящему →
   `PlayerTaken(reason="flashlight_standing")`. `StopRequest` — пассажир с `AsksToStop` просит остановить (Notify
