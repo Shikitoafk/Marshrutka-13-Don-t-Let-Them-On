@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Nights = require(Shared:WaitForChild("Nights"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Strings = require(Shared:WaitForChild("Strings"))
 
@@ -24,7 +25,10 @@ type ReadyByUserId = { [string]: boolean }
 type LobbyData = {
 	Ready: ReadyByUserId?,
 	CountdownEndsAt: number?,
+	Night: number?,
+	Leader: number?,
 }
+type Progress = { UnlockedNight: number, BestStars: { [string]: number } }
 
 local function roundCorners(gui: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")
@@ -187,6 +191,9 @@ function LobbyController:Init(_controllers: { [string]: any }) end
 function LobbyController:Start()
 	local localPlayer = Players.LocalPlayer
 	local playerGui = localPlayer:WaitForChild("PlayerGui")
+	local studio = RunService:IsStudio()
+	local lobbyPreview = studio and Workspace:GetAttribute("StudioHudLobbyPreview") == true
+	local nightSelect = Remotes.Event("NightSelect")
 
 	local screen = Instance.new("ScreenGui")
 	screen.AutoLocalize = false
@@ -200,7 +207,7 @@ function LobbyController:Start()
 
 	local title = Instance.new("TextLabel")
 	title.Position = UDim2.fromScale(0.06, 0.05)
-	title.Size = UDim2.fromScale(0.88, 0.14)
+	title.Size = UDim2.fromScale(0.38, 0.14)
 	styleText(title, 30)
 	title.Font = Enum.Font.GothamBold
 	title.TextXAlignment = Enum.TextXAlignment.Left
@@ -219,7 +226,7 @@ function LobbyController:Start()
 	local list = Instance.new("ScrollingFrame")
 	list.Name = "Players"
 	list.Position = UDim2.fromScale(0.06, 0.34)
-	list.Size = UDim2.fromScale(0.88, 0.37)
+	list.Size = UDim2.fromScale(0.88, 0.35)
 	list.BackgroundTransparency = 1
 	list.BorderSizePixel = 0
 	list.ScrollBarThickness = 5
@@ -237,18 +244,55 @@ function LobbyController:Start()
 	local readyButton = makeButton(panel, "ReadyButton", 0.06, 0.49)
 	local howToPlay = makeButton(panel, "HowToPlay", 0.59, 0.35)
 	howToPlay.Text = Strings.get("tutorial.open")
+	local choose = makeButton(panel, "ChooseNight", 0.48, 0.46)
+	choose.Position = UDim2.fromScale(0.48, 0.2)
+	choose.Size = UDim2.fromScale(0.46, 0.17)
+	countdown.Size = UDim2.fromScale(0.4, 0.105)
+	local nightPanel = makePanel(screen)
+	nightPanel.Name = "NightSelector"
+	nightPanel.Visible = false
+	local leaderCaption = Instance.new("TextLabel")
+	leaderCaption.Position = UDim2.fromScale(0.06, 0.035)
+	leaderCaption.Size = UDim2.fromScale(0.88, 0.12)
+	styleText(leaderCaption, 21)
+	leaderCaption.Parent = nightPanel
+	local nightList = Instance.new("ScrollingFrame")
+	nightList.Position = UDim2.fromScale(0.06, 0.17)
+	nightList.Size = UDim2.fromScale(0.88, 0.56)
+	nightList.BackgroundTransparency = 1
+	nightList.BorderSizePixel = 0
+	nightList.ScrollBarThickness = 5
+	nightList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	nightList.CanvasSize = UDim2.fromScale(0, 0)
+	nightList.Parent = nightPanel
+	local nightLayout = Instance.new("UIListLayout")
+	nightLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	nightLayout.Padding = UDim.new(0, 5)
+	nightLayout.Parent = nightList
+	local closeNights = makeButton(nightPanel, "CloseNights", 0.06, 0.88)
+	closeNights.Text = Strings.get("ui.close")
+	local nightButtons: { TextButton } = {}
+	for index, _ in Nights do
+		local button = makeButton(nightPanel, "Night" .. index, 0, 0.96)
+		button.AnchorPoint = Vector2.zero
+		button.LayoutOrder = index
+		button.Size = UDim2.new(0.96, 0, 0, 48)
+		button.Parent = nightList
+		nightButtons[index] = button
+	end
+
 	local openTutorial, closeTutorial = makeTutorial(screen, panel)
-	local studio = RunService:IsStudio()
 	local previewTutorial = studio and Workspace:GetAttribute("StudioTutorialPreview") == true
 	local tutorialOpened = false
 
 	local function openOnce()
 		tutorialOpened = true
+		nightPanel.Visible = false
 		openTutorial()
 	end
 
 	local function maybeOpenTutorial()
-		if screen.Enabled and not tutorialOpened and (previewTutorial or localPlayer:GetAttribute("ShowTutorial") == true) then
+		if screen.Enabled and not nightPanel.Visible and not tutorialOpened and (previewTutorial or localPlayer:GetAttribute("ShowTutorial") == true) then
 			openOnce()
 		end
 	end
@@ -262,6 +306,71 @@ function LobbyController:Start()
 	local tickConnection: RBXScriptConnection? = nil
 	local rows: { Frame } = {}
 	local localUserId = tostring(localPlayer.UserId)
+	local selectedNight = 1
+	local leaderId: number? = nil
+	local unlocked = 1
+	local bestStars: { [string]: number } = {}
+	local refreshing = false
+
+	local function renderNights()
+		local night = Nights[selectedNight]
+		local leader = if leaderId == localPlayer.UserId then localPlayer elseif leaderId then Players:GetPlayerByUserId(leaderId) else nil
+		leaderCaption.Text = if leader then Strings.get("night.leader", { name = leader.DisplayName }) else Strings.get("night.no_leader")
+		choose.Text = if night then Strings.get("night.card", { number = selectedNight, name = Strings.get(night.NameKey) }) else Strings.get("night.choose")
+		for index, button in nightButtons do
+			local locked = index > unlocked
+			local stars = math.clamp(bestStars[tostring(index)] or 0, 0, 3)
+			local status = if index == selectedNight then Strings.get("night.selected") elseif locked then Strings.get("night.locked") else ""
+			local rating = string.rep("★", stars) .. string.rep("☆", 3 - stars)
+			button.Text = `{index} · {Strings.get(Nights[index].NameKey)}  {rating}  {status}`
+			button.Active = not locked and leaderId == localPlayer.UserId
+			button.AutoButtonColor = button.Active
+			button.BackgroundColor3 = if index == selectedNight then AMBER_COLOR else ROW_COLOR
+			button.TextColor3 = if index == selectedNight then PANEL_COLOR elseif locked then MUTED_COLOR else TEXT_COLOR
+		end
+	end
+
+	local function refreshProgress()
+		if refreshing or lobbyPreview then return end
+		refreshing = true
+		task.spawn(function()
+			local ok, profile = pcall(function(): Progress?
+				return Remotes.Function("GetProfile"):InvokeServer()
+			end)
+			if ok and profile and type(profile.UnlockedNight) == "number" and type(profile.BestStars) == "table" then
+				unlocked = profile.UnlockedNight
+				bestStars = profile.BestStars
+				renderNights()
+			end
+			refreshing = false
+		end)
+	end
+	localPlayer:GetAttributeChangedSignal("UnlockedNight"):Connect(refreshProgress)
+
+	choose.Activated:Connect(function()
+		if screen.Enabled and panel.Visible then
+			panel.Visible = false
+			nightPanel.Visible = true
+			renderNights()
+			refreshProgress()
+		end
+	end)
+	closeNights.Activated:Connect(function()
+		nightPanel.Visible = false
+		panel.Visible = true
+		maybeOpenTutorial()
+	end)
+	for index, button in nightButtons do
+		button.Activated:Connect(function()
+			if not screen.Enabled or not nightPanel.Visible or leaderId ~= localPlayer.UserId or index > unlocked then return end
+			if lobbyPreview then
+				selectedNight = index
+				renderNights()
+			else
+				nightSelect:FireServer(index)
+			end
+		end)
+	end
 
 	local function updateCountdown()
 		local text = Strings.get("lobby.waiting_players")
@@ -304,8 +413,16 @@ function LobbyController:Start()
 	end
 
 	local function applyRoundState(nextState: string, data: LobbyData?)
+		local previousState = state
 		state = nextState
 		screen.Enabled = state == "Lobby" or state == "Countdown"
+		leaderId = if data then data.Leader else nil
+		local nextNight = if data then data.Night else nil
+		if type(nextNight) == "number" and Nights[nextNight] then
+			selectedNight = nextNight
+		elseif nextState == "Lobby" then
+			selectedNight = 1
+		end
 		readyByUserId = if screen.Enabled and data and type(data.Ready) == "table" then data.Ready else {}
 		local deadline = if state == "Countdown" and data then data.CountdownEndsAt else nil
 		countdownEndsAt = if type(deadline) == "number" and deadline == deadline and math.abs(deadline) < math.huge
@@ -320,8 +437,11 @@ function LobbyController:Start()
 		if screen.Enabled then
 			updateRoster()
 			updateCountdown()
+			renderNights()
+			if previousState ~= state or data == nil then refreshProgress() end
 			maybeOpenTutorial()
 		else
+			nightPanel.Visible = false
 			closeTutorial()
 		end
 	end
@@ -338,7 +458,10 @@ function LobbyController:Start()
 	end)
 	applyRoundState("Lobby", nil)
 
-	if studio and Workspace:GetAttribute("StudioHudLobbyPreview") == true then
+	if lobbyPreview then
+		unlocked = #Nights
+		bestStars = { ["1"] = 3, ["2"] = 2 }
+		renderNights()
 		local preview = Instance.new("BindableEvent")
 		preview.Name = "StudioRoundPreview"
 		preview.Parent = playerGui
@@ -355,6 +478,8 @@ function LobbyController:Start()
 			applyRoundState("Countdown", {
 				Ready = { [localUserId] = true },
 				CountdownEndsAt = deadline,
+				Night = selectedNight,
+				Leader = localPlayer.UserId,
 			})
 			preview:Fire("Countdown")
 			task.delay(Config.LOBBY_COUNTDOWN, function()

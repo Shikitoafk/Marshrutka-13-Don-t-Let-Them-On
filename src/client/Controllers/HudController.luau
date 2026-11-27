@@ -8,10 +8,16 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
 local Config = require(Shared:WaitForChild("Config"))
+local Nights = require(Shared:WaitForChild("Nights"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Strings = require(Shared:WaitForChild("Strings"))
 
 local HudController = {}
+local openRules: (() -> ())? = nil
+
+function HudController:SetRulesHandler(handler: () -> ())
+	openRules = handler
+end
 
 local PANEL_COLOR = Color3.fromRGB(21, 28, 39)
 local TEXT_COLOR = Color3.fromRGB(250, 244, 231)
@@ -123,7 +129,7 @@ local function makeButton(parent: Instance, text: string): TextButton
 	return button
 end
 
-local function makeGuide(screen: ScreenGui): Frame
+local function makeGuide(screen: ScreenGui): (Frame, { [string]: TextLabel })
 	local backdrop = Instance.new("Frame")
 	backdrop.Name = "ConductorGuide"
 	backdrop.Size = UDim2.fromScale(1, 1)
@@ -175,6 +181,7 @@ local function makeGuide(screen: ScreenGui): Frame
 	layout.Padding = UDim.new(0, 12)
 	layout.Parent = list
 
+	local hints: { [string]: TextLabel } = {}
 	for index, anomaly in AnomalyTypes do
 		local hint = Instance.new("TextLabel")
 		hint.Name = anomaly.Id
@@ -188,10 +195,15 @@ local function makeGuide(screen: ScreenGui): Frame
 		hint.Font = Enum.Font.GothamMedium
 		hint.TextColor3 = TEXT_COLOR
 		hint.RichText = true
-		local name = Strings.get(`anomaly.{anomaly.Id}.name`)
-		local description = Strings.get(`anomaly.{anomaly.Id}.hint`)
+		local nameKey = `anomaly.{anomaly.Id}.name`
+		local hintKey = `anomaly.{anomaly.Id}.hint`
+		local name = Strings.get(nameKey)
+		local description = Strings.get(hintKey)
+		if name == nameKey then name = anomaly.Name end
+		if description == hintKey then description = anomaly.Hint end
 		hint.Text = `<b>{name}</b>\n{description}`
 		hint.Parent = list
+		hints[anomaly.Id] = hint
 	end
 
 	local close = makeButton(panel, Strings.get("ui.close"))
@@ -202,7 +214,7 @@ local function makeGuide(screen: ScreenGui): Frame
 	close.Activated:Connect(function()
 		backdrop.Visible = false
 	end)
-	return backdrop
+	return backdrop, hints
 end
 
 function HudController:Init(controllers: { [string]: any })
@@ -306,7 +318,33 @@ function HudController:Start()
 		guideSize.MaxSize = Vector2.new(48, 48)
 	end
 	guideButton.Visible = false
-	local guide = makeGuide(screen)
+	local guide, hints = makeGuide(screen)
+	local function applyNight(index: number)
+		local night = Nights[index]
+		if night then
+			for id, hint in hints do
+				hint.Visible = night.Anomalies[id] ~= nil or (id == "FakeController" and night.Events.FakeControllerChance ~= nil)
+			end
+		end
+	end
+	applyNight(1)
+
+	local rulesButton = makeButton(panel, "📜")
+	rulesButton.Name = "OpenRules"
+	rulesButton.AnchorPoint = Vector2.new(1, 0)
+	rulesButton.Position = UDim2.new(1, -54, 1.12, 0)
+	rulesButton.Size = UDim2.fromScale(0.14, 1)
+	local rulesSize = rulesButton:FindFirstChildOfClass("UISizeConstraint")
+	if rulesSize then
+		rulesSize.MinSize = Vector2.new(48, 48)
+		rulesSize.MaxSize = Vector2.new(48, 48)
+	end
+	rulesButton.Activated:Connect(function()
+		if openRules and screen.Enabled then
+			guide.Visible = false
+			openRules()
+		end
+	end)
 	guideButton.Activated:Connect(function()
 		if screen.Enabled and guideButton.Visible then
 			guide.Visible = true
@@ -452,9 +490,11 @@ function HudController:Start()
 
 	if RunService:IsStudio() and Workspace:GetAttribute("StudioHudLobbyPreview") == true then
 		local preview = playerGui:WaitForChild("StudioRoundPreview") :: BindableEvent
+		local previewNight = Workspace:GetAttribute("StudioRulesNight")
 		preview.Event:Connect(function(state: string)
 			applyRoundState(state)
 			if state == "Running" then
+				applyNight(if type(previewNight) == "number" then previewNight else 1)
 				applyRole("Conductor")
 				applyStop(1, Config.STOP_NAMES[1], "Approaching")
 				applyHealth(Config.BUS_MAX_HEALTH)
@@ -472,6 +512,7 @@ function HudController:Start()
 	end
 
 	Remotes.Event("RoundState").OnClientEvent:Connect(applyRoundState)
+	Remotes.Event("NightInfo").OnClientEvent:Connect(applyNight)
 	Remotes.Event("RoleAssigned").OnClientEvent:Connect(applyRole)
 	Remotes.Event("StopChanged").OnClientEvent:Connect(applyStop)
 	Remotes.Event("BusState").OnClientEvent:Connect(function(_speed: number, busHealth: number, open: boolean)

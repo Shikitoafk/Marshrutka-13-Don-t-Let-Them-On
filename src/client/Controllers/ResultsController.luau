@@ -7,6 +7,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Nights = require(Shared:WaitForChild("Nights"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Strings = require(Shared:WaitForChild("Strings"))
 
@@ -28,7 +29,7 @@ local TOAST_COLORS: { [string]: Color3 } = {
 	Bad = Color3.fromRGB(118, 44, 50),
 }
 
-type Summary = { Won: boolean, Tenge: number, Caught: number, Mistakes: number, StopsReached: number }
+type Summary = { Won: boolean, Tenge: number, Caught: number, Mistakes: number, StopsReached: number, Night: number?, Stars: number? }
 
 local function roundCorners(gui: GuiObject)
 	local corner = Instance.new("UICorner")
@@ -137,11 +138,15 @@ function ResultsController:Start()
 	panel.Parent = backdrop
 
 	local title = label(panel, "Outcome", UDim2.fromScale(0.06, 0.07), UDim2.fromScale(0.88, 0.15), 33)
-	local earnings = metric(panel, "TripEarnings", Strings.get("results.earnings"), 0.06, 0.26)
-	local caught = metric(panel, "Caught", Strings.get("results.caught"), 0.51, 0.26)
-	local mistakes = metric(panel, "Mistakes", Strings.get("results.mistakes"), 0.06, 0.48)
-	local stops = metric(panel, "StopsReached", Strings.get("results.stops"), 0.51, 0.48)
-	local depot = button(panel, "ReturnToDepot", Strings.get("results.depot"), UDim2.fromScale(0.06, 0.94), UDim2.fromScale(0.88, 0.20))
+	local rating = label(panel, "NightStars", UDim2.fromScale(0.06, 0.16), UDim2.fromScale(0.88, 0.11), 24)
+	rating.TextColor3 = AMBER
+	local earnings = metric(panel, "TripEarnings", Strings.get("results.earnings"), 0.06, 0.28)
+	local caught = metric(panel, "Caught", Strings.get("results.caught"), 0.51, 0.28)
+	local mistakes = metric(panel, "Mistakes", Strings.get("results.mistakes"), 0.06, 0.49)
+	local stops = metric(panel, "StopsReached", Strings.get("results.stops"), 0.51, 0.49)
+	local unlock = label(panel, "NightUnlocked", UDim2.fromScale(0.06, 0.69), UDim2.fromScale(0.88, 0.08), 18)
+	unlock.TextColor3 = AMBER
+	local depot = button(panel, "ReturnToDepot", Strings.get("results.depot"), UDim2.fromScale(0.06, 0.97), UDim2.fromScale(0.88, 0.18))
 	depot.AnchorPoint = Vector2.new(0, 1)
 	constrain(depot, Vector2.new(0, 48), Vector2.new(math.huge, math.huge))
 
@@ -161,6 +166,19 @@ function ResultsController:Start()
 
 	local toastNumber = 0
 	local roundState: string? = nil
+	local localPlayer = Players.LocalPlayer
+	local unlockedBefore: number? = nil
+	local eligibleUnlock: number? = nil
+	local ratingVersion = 0
+
+	local function showUnlock()
+		local before, nextNight = unlockedBefore, eligibleUnlock
+		local value = localPlayer:GetAttribute("UnlockedNight")
+		unlock.Text = if before and nextNight and before < nextNight and type(value) == "number" and value >= nextNight
+			then Strings.get("night.unlocked", { number = nextNight })
+			else ""
+	end
+	localPlayer:GetAttributeChangedSignal("UnlockedNight"):Connect(showUnlock)
 
 	local function notify(key: string, kind: string, parameters: Strings.Parameters?)
 		if type(key) ~= "string" or key == "" then
@@ -179,8 +197,14 @@ function ResultsController:Start()
 	end
 
 	local function applyRoundState(state: string)
+		if state == "Running" and roundState ~= "Running" then
+			local value = localPlayer:GetAttribute("UnlockedNight")
+			unlockedBefore = if type(value) == "number" then value else nil
+			eligibleUnlock = nil
+		end
 		if state ~= "Results" and state ~= roundState then
 			results.Enabled = false
+			ratingVersion += 1
 		end
 		roundState = state
 	end
@@ -196,6 +220,20 @@ function ResultsController:Start()
 		caught.Text = tostring(summary.Caught)
 		mistakes.Text = tostring(summary.Mistakes)
 		stops.Text = `{summary.StopsReached}/{#Config.STOP_NAMES}`
+		ratingVersion += 1
+		local version = ratingVersion
+		local night = if summary.Night then Nights[summary.Night] else nil
+		local stars = if summary.Stars then math.clamp(math.floor(summary.Stars), 0, 3) else 0
+		eligibleUnlock = if night and stars > 0 and Nights[night.Index + 1] then night.Index + 1 else nil
+		showUnlock()
+		rating.Text = if night then "☆☆☆" else ""
+		for index = 1, stars do
+			task.delay(index * 0.22, function()
+				if ratingVersion == version and results.Enabled and night then
+					rating.Text = string.rep("★", index) .. string.rep("☆", 3 - index)
+				end
+			end)
+		end
 		results.Enabled = true
 	end
 
@@ -223,6 +261,8 @@ function ResultsController:Start()
 				Caught = if won then 2 else 0,
 				Mistakes = if won then 0 else 1,
 				StopsReached = if won then #Config.STOP_NAMES else 3,
+				Night = 2,
+				Stars = if won then 3 else 0,
 			})
 			won = not won
 		end)

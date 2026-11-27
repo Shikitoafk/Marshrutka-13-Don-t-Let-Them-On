@@ -19,11 +19,19 @@ type Receipt = { PlayerId: number, ProductId: number, PurchaseId: string }
 
 -- В одной записи чек одновременно служит купленным зарядом.
 local amulets = if Config.PRODUCT_AMULET > 0 then DataStoreService:GetDataStore(Config.DATASTORE_NAME .. "_Amulets") else nil
+local revives = if Config.PRODUCT_REVIVE > 0 then DataStoreService:GetDataStore(Config.DATASTORE_NAME .. "_Revives") else nil
 local vipOwners: { [Player]: boolean } = {}
 local consuming: { [Player]: boolean } = {}
+local reviveBusy: { [Player]: boolean } = {}
+local nextReviveAt: { [Player]: number } = {}
+type GhostService = {
+	IsGhost: (any, Player) -> boolean,
+	Revive: (any, Player) -> boolean,
+	GetRevivesLeft: ((any) -> number)?,
+}
+local ghosts: GhostService? = nil
 
-local function updateAmulets(userId: number, transform: (Ledger) -> Ledger?): Ledger?
-	local store = amulets
+local function updateLedger(store: GlobalDataStore?, userId: number, transform: (Ledger) -> Ledger?): Ledger?
 	if not store then
 		return nil
 	end
@@ -46,15 +54,26 @@ local function updateAmulets(userId: number, transform: (Ledger) -> Ledger?): Le
 		if attempt < MAX_ATTEMPTS then
 			task.wait(2 ^ (attempt - 1))
 		else
-			warn(`[MonetizationService] Не удалось сохранить Оберег: {result}`)
+			warn(`[MonetizationService] Не удалось сохранить покупку: {result}`)
 		end
 	end
 	return nil
 end
 
+local function publishRevives(player: Player, ledger: Ledger)
+	if player.Parent ~= Players then return end
+	local count = 0
+	for _, state in ledger do
+		if state == true then count += 1 end
+	end
+	player:SetAttribute("ReviveCredits", count)
+end
+
 local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecision
 	local userId = receipt.PlayerId
-	if not amulets or receipt.ProductId ~= Config.PRODUCT_AMULET or type(receipt.PurchaseId) ~= "string"
+	local isRevive = receipt.ProductId == Config.PRODUCT_REVIVE and revives ~= nil
+	local store = if isRevive then revives elseif receipt.ProductId == Config.PRODUCT_AMULET then amulets else nil
+	if not store or type(receipt.PurchaseId) ~= "string"
 		or receipt.PurchaseId == "" or type(userId) ~= "number" or userId <= 0 or userId % 1 ~= 0
 	then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
@@ -63,10 +82,14 @@ local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecisio
 	if not player then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
+	if isRevive and reviveBusy[player] then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	if isRevive then reviveBusy[player] = true end
 
 	local receiptId = receipt.PurchaseId
 	local added = false
-	local ledger = updateAmulets(userId, function(current)
+	local ledger = updateLedger(store, userId, function(current)
 		-- UpdateAsync может вызвать функцию повторно при записи с другого сервера.
 		added = current[receiptId] == nil
 		if added then
@@ -74,11 +97,20 @@ local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecisio
 		end
 		return current
 	end)
+	if isRevive then
+		if ledger then publishRevives(player, ledger) end
+		reviveBusy[player] = nil
+	end
 	local status = if ledger then ledger[receiptId] else nil
 	if status ~= true and type(status) ~= "string" then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if added and player.Parent == Players then
+	if isRevive and status == true then
+		task.spawn(function()
+			MonetizationService:RedeemRevive(player, receiptId)
+		end)
+	end
+	if added and not isRevive and player.Parent == Players then
 		notify:FireClient(player, "notify.amulet_added", "Good")
 	end
 	return Enum.ProductPurchaseDecision.PurchaseGranted
@@ -116,6 +148,15 @@ end
 local function loadPasses(player: Player)
 	task.spawn(checkPass, player, Config.GAMEPASS_VIP)
 	task.spawn(checkPass, player, Config.GAMEPASS_RADIO)
+	if revives and player.UserId > 0 then
+		task.spawn(function()
+			if reviveBusy[player] then return end
+			reviveBusy[player] = true
+			local ledger = updateLedger(revives, player.UserId, function(current) return current end)
+			if ledger then publishRevives(player, ledger) end
+			reviveBusy[player] = nil
+		end)
+	end
 end
 
 function MonetizationService:HasVIP(player: Player): boolean
@@ -128,7 +169,7 @@ function MonetizationService:ConsumeAmulet(player: Player): boolean
 	end
 	consuming[player] = true
 	local useId = HttpService:GenerateGUID(false)
-	local ledger = updateAmulets(player.UserId, function(current)
+	local ledger = updateLedger(amulets, player.UserId, function(current)
 		local available: string? = nil
 		for receiptId, state in current do
 			if state == useId then
@@ -154,8 +195,59 @@ function MonetizationService:ConsumeAmulet(player: Player): boolean
 	return false
 end
 
-function MonetizationService:Init(_services: { [string]: any })
+function MonetizationService:RedeemRevive(player: Player, preferredReceipt: string?): boolean
+	local service = ghosts
+	if not service or not revives or player.Parent ~= Players or player.UserId <= 0 or reviveBusy[player] or not service:IsGhost(player) then
+		return false
+	end
+	reviveBusy[player] = true
+	local useId = HttpService:GenerateGUID(false)
+	local selected: string? = nil
+	local ledger = updateLedger(revives, player.UserId, function(current)
+		selected = nil
+		for receiptId, state in current do
+			if state == useId or (state == true and (preferredReceipt == nil or receiptId == preferredReceipt)) then
+				selected = receiptId
+				current[receiptId] = useId
+				break
+			end
+		end
+		return current
+	end)
+	local receiptId = selected
+	local restored = false
+	if ledger and receiptId and ledger[receiptId] == useId then
+		local ok, result = pcall(service.Revive, service, player)
+		restored = ok and result == true
+		if not restored then
+			local refunded = updateLedger(revives, player.UserId, function(current)
+				if current[receiptId] == useId then
+					current[receiptId] = true
+				end
+				return current
+			end)
+			if refunded then ledger = refunded end
+		end
+	end
+	if ledger then publishRevives(player, ledger) end
+	reviveBusy[player] = nil
+	return restored
+end
+
+function MonetizationService:Init(services: { [string]: any })
+	ghosts = services.GhostService
 	MarketplaceService.ProcessReceipt = getReceiptDecision
+	-- Бесплатное возвращение выполняет GhostService. Здесь тратим сохранённый заряд,
+	-- только когда V04 сообщает, что бесплатных больше нет.
+	Remotes.Event("ReviveRequest").OnServerEvent:Connect(function(player: Player)
+		local service = ghosts
+		local getRevivesLeft = if service then service.GetRevivesLeft else nil
+		local now = os.clock()
+		if service and getRevivesLeft and getRevivesLeft(service) == 0 and now >= (nextReviveAt[player] or 0) then
+			nextReviveAt[player] = now + 1
+			self:RedeemRevive(player)
+		end
+	end)
 end
 
 function MonetizationService:Start()
@@ -167,6 +259,7 @@ function MonetizationService:Start()
 	Players.PlayerAdded:Connect(loadPasses)
 	Players.PlayerRemoving:Connect(function(player)
 		vipOwners[player] = nil
+		nextReviveAt[player] = nil
 	end)
 	for _, player in Players:GetPlayers() do
 		loadPasses(player)

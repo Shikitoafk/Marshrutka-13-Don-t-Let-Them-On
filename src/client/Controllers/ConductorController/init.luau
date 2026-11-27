@@ -24,7 +24,12 @@ local CABIN_REFRESH = 0.1 -- Частота обновления модели с
 
 type Target = { model: Model, part: BasePart, id: string, ticket: ProximityPrompt, eject: ProximityPrompt }
 type Tool = "Ticket" | "Flashlight"
-type TicketData = { Route: string, Date: string }
+type TicketData = { Route: string, Date: string, Coin: string? }
+local COIN_MARKS = {
+	["coin.tenge_100"] = "100",
+	["coin.kopeck_1961"] = "1961",
+	["coin.blank"] = "",
+}
 
 local function constrain(gui: GuiObject, minSize: Vector2, maxSize: Vector2)
 	local size = Instance.new("UISizeConstraint")
@@ -219,6 +224,21 @@ function ConductorController:Start()
 	local dialog, dialogPanel = overlay(screen, "PassengerDialog", 3, 1.4, Vector2.new(425, 302))
 	local dialogTitle = label(dialogPanel, "", UDim2.fromScale(0.06, 0.075), UDim2.fromScale(0.88, 0.22))
 	local dialogBody = label(dialogPanel, "", UDim2.fromScale(0.06, 0.31), UDim2.fromScale(0.88, 0.33))
+	local coin = label(dialogPanel, "", UDim2.fromScale(0.72, 0.28), UDim2.fromScale(0.18, 0.28))
+	coin.BackgroundTransparency = 0
+	coin.BackgroundColor3 = Color3.fromRGB(178, 134, 58)
+	coin.TextColor3 = PANEL
+	coin.Visible = false
+	local coinCorner = Instance.new("UICorner")
+	coinCorner.CornerRadius = UDim.new(0.5, 0)
+	coinCorner.Parent = coin
+	local coinAspect = Instance.new("UIAspectRatioConstraint")
+	coinAspect.AspectRatio = 1
+	coinAspect.Parent = coin
+	local coinCaption = label(dialogPanel, "", UDim2.fromScale(0.6, 0.59), UDim2.fromScale(0.36, 0.1))
+	coinCaption.TextColor3 = PANEL
+	coinCaption.TextWrapped = true
+	coinCaption.Visible = false
 	local dialogClose = button(dialogPanel, "CloseDialog", Strings.get("ui.close"), UDim2.fromScale(0.055, 0.94), UDim2.fromScale(0.89, 0.23))
 	local confirm = button(dialogPanel, "ConfirmEject", Strings.get("conductor.eject"), UDim2.fromScale(0.52, 0.94), UDim2.fromScale(0.425, 0.23))
 	confirm.BackgroundColor3 = Color3.fromRGB(116, 49, 47)
@@ -233,6 +253,7 @@ function ConductorController:Start()
 	local previewBus: Model? = nil
 	local roundState = "Lobby"
 	local role: string? = nil
+	local isGhost = false
 	local battery = Config.FLASHLIGHT_BATTERY
 	local lightOn = false
 	local tickConnection: RBXScriptConnection? = nil
@@ -328,6 +349,16 @@ function ConductorController:Start()
 		dialogTitle.Text = Strings.get("conductor.ticket")
 		dialogBody.TextColor3 = PANEL
 		dialogBody.Text = Strings.get("conductor.ticket_details", { route = data.Route, date = data.Date })
+		local coinKey = data.Coin
+		local mark = if type(coinKey) == "string" then COIN_MARKS[coinKey] else nil
+		coin.Visible = mark ~= nil
+		coinCaption.Visible = coin.Visible
+		coin.Text = mark or ""
+		if coinKey and mark ~= nil then
+			coin.BackgroundColor3 = if coinKey == "coin.tenge_100" then Color3.fromRGB(193, 158, 81) else Color3.fromRGB(159, 150, 128)
+			coinCaption.Text = Strings.get(coinKey)
+		end
+		dialogBody.Size = UDim2.fromScale(if coin.Visible then 0.53 else 0.88, 0.33)
 		dialogClose.Text = Strings.get("ui.close")
 		dialogClose.Size = UDim2.fromScale(0.89, 0.23)
 		confirm.Visible = false
@@ -344,6 +375,8 @@ function ConductorController:Start()
 		dialogTitle.Text = Strings.get("conductor.eject_title")
 		dialogBody.TextColor3 = TEXT
 		dialogBody.Text = Strings.get("conductor.eject_confirm")
+		dialogBody.Size = UDim2.fromScale(0.88, 0.33)
+		coin.Visible, coinCaption.Visible = false, false
 		dialogClose.Text = Strings.get("ui.cancel")
 		dialogClose.Size = UDim2.fromScale(0.425, 0.23)
 		confirm.Visible = true
@@ -450,7 +483,7 @@ function ConductorController:Start()
 	end
 
 	local function updateTools()
-		local enabled = role == "Conductor" and roundState == "Running"
+		local enabled = role == "Conductor" and roundState == "Running" and not isGhost
 		if screen.Enabled == enabled then
 			return
 		end
@@ -496,6 +529,7 @@ function ConductorController:Start()
 	local function applyRoundState(state: string)
 		if state ~= roundState and (state == "Lobby" or state == "Results") then
 			role = nil
+			isGhost = false
 			battery = Config.FLASHLIGHT_BATTERY
 			nextInspectAt = 0
 			updateLightButton()
@@ -571,6 +605,10 @@ function ConductorController:Start()
 	Remotes.Event("InspectResult").OnClientEvent:Connect(showTicket)
 	Remotes.Event("RoleAssigned").OnClientEvent:Connect(function(assignedRole: string)
 		role = assignedRole
+		updateTools()
+	end)
+	Remotes.Event("GhostState").OnClientEvent:Connect(function(ghost: boolean)
+		isGhost = ghost == true
 		updateTools()
 	end)
 	Remotes.Event("RoundState").OnClientEvent:Connect(applyRoundState)
