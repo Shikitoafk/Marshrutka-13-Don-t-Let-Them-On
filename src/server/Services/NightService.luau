@@ -10,8 +10,11 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local Nights = require(Shared:WaitForChild("Nights"))
 local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
 local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
+local Outfit = require(script.Parent.Parent:WaitForChild("Outfit"))
 
 local SELECT_RATE = 5 -- NightSelect в секунду на игрока: сверх — отбрасываем до проверок
+local STOP_ASK_MIN, STOP_ASK_MAX = 6, 15 -- сек после отъезда, когда «пассажир» просит остановить (V02)
+local STOP_WATCH_STEP = 0.25 -- как часто смотрим, не встал ли водитель, пока просьба в силе
 local UNIFORM = Color3.fromRGB(30, 60, 150) -- синяя форма настоящего контролёра (правило ночи 5)
 local FAKE_UNIFORM = Color3.fromRGB(38, 44, 42) -- у фальшивого: почти чёрная и без жетона
 local BADGE = Color3.fromRGB(230, 185, 60)
@@ -37,20 +40,7 @@ local function notifyRiders(key: string, kind: string, params: { [string]: any }
 	end
 end
 
--- Деталь формы, приваренная к части тела (без массы и столкновений, чтобы не мешать ходьбе и сиденью).
-local function attach(base: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3)
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Size = size
-	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
-	part.CanCollide, part.CanQuery, part.CanTouch, part.Massless = false, false, false, true
-	part.CFrame = base.CFrame * offset
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0, weld.Part1 = base, part
-	weld.Parent = part
-	part.Parent = base.Parent
-end
+local attach = Outfit.attach
 
 -- Форма контролёра: одежда снята, тело в цвет формы, фуражка; у настоящего — золотой жетон на груди.
 local function uniform(model: Model, color: Color3, badge: boolean)
@@ -222,6 +212,36 @@ function NightService:Start()
 			notifyRiders("notify.controller_boarded", "Info")
 			if not fake then
 				check(id)
+			end
+		end)
+	end)
+
+	-- Просьбы остановиться (Events.StopRequests): если в салоне аномалия StopRequest, посреди перегона она просит
+	-- остановить. Встал вне зоны остановки, пока просьба в силе (до следующей остановки), — урон и нарушение правила.
+	-- На автопилоте автобус между остановками не встаёт, поэтому без водителя урона не бывает.
+	local leg = 0 -- растёт на каждой остановке: просьба с прошлого перегона больше не действует
+	route.StopChanged:Connect(function(_index: number, _name: string, phase: string)
+		if phase == "AtStop" then
+			leg += 1
+		end
+		if not (running and phase == "Departed" and Nights[selected].Events.StopRequests) then
+			return
+		end
+		local myLeg, run = leg, runId
+		task.delay(math.random(STOP_ASK_MIN, STOP_ASK_MAX), function()
+			if leg ~= myLeg or run ~= runId or not anomalies:HasAboard("StopRequest") then
+				return
+			end
+			log("просят остановить между остановками")
+			notifyRiders("notify.stop_request", "Warn")
+			while leg == myLeg and run == runId do
+				if route:IsStoppedBetweenStops() then
+					log("остановились по просьбе — урон")
+					anomalies:Damage(Config.STOP_REQUEST_DAMAGE)
+					NightService:BreakRule()
+					return
+				end
+				task.wait(STOP_WATCH_STEP)
 			end
 		end)
 	end)

@@ -9,6 +9,7 @@ local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
+local Outfit = require(script.Parent.Parent:WaitForChild("Outfit"))
 local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
 local Nights = require(Shared:WaitForChild("Nights"))
 
@@ -17,8 +18,11 @@ type AnomalyType = AnomalyTypes.AnomalyType
 local MAX_ID_LENGTH = 64 -- GUID короче; длиннее — мусор от клиента
 local TOOL_RATE = 5 -- Inspect/Eject в секунду на игрока: сверх — отбрасываем до проверок
 local WRONG_ROUTES = { "№31", "№18", "№130" }
--- shortcut: у этих аномалий ещё нет поведения и примет (V02) — до него из пула ночи их не выдаём.
-local NOT_YET = { StrangeCoin = true, Grandma = true, Standing = true, StopRequest = true }
+local FARE_COIN = "coin.tenge_100" -- «передайте за проезд»: так платят люди (ключ Strings)
+local STRANGE_COINS = { "coin.kopeck_1961", "coin.blank" } -- так платит StrangeCoin
+local SCARF = Color3.fromRGB(150, 45, 55) -- платок бабушки
+local BAG = Color3.fromRGB(105, 80, 50) -- котомка
+local LAUGH_EVERY_MIN, LAUGH_EVERY_MAX = 12, 25 -- сек между «тихими смешками» бабушки
 
 local byId: { [string]: AnomalyType } = {}
 for _, kind in AnomalyTypes do
@@ -75,18 +79,18 @@ local function ticket(wrong: boolean): { [string]: string }
 	local route = "№" .. Config.ROUTE_NUMBER
 	local today = os.date("%d.%m.%Y")
 	if not wrong then
-		return { Route = route, Date = today }
+		return { Route = route, Date = today, Coin = FARE_COIN }
 	end
 	if math.random() < 0.5 then
-		return { Route = WRONG_ROUTES[math.random(#WRONG_ROUTES)], Date = today }
+		return { Route = WRONG_ROUTES[math.random(#WRONG_ROUTES)], Date = today, Coin = FARE_COIN }
 	end
-	return { Route = route, Date = string.sub(today, 1, 6) .. "1986" }
+	return { Route = route, Date = string.sub(today, 1, 6) .. "1986", Coin = FARE_COIN }
 end
 
 -- Тип по весам ночи; двойник — только если есть с кого копировать. Пустой пул — nil (пассажир обычный).
 local function pickType(pool: { [string]: number }, canTwin: boolean): AnomalyType?
 	local function usable(id: string): boolean
-		return byId[id] ~= nil and not NOT_YET[id] and (canTwin or id ~= "Twin")
+		return byId[id] ~= nil and (canTwin or id ~= "Twin")
 	end
 	local total = 0
 	for id, weight in pool do
@@ -155,6 +159,42 @@ local function turnHead(model: Model)
 	end
 end
 
+-- Бабушка (Safe): платок поверх волос (лицо открыто) и котомка в правой руке.
+local function grandmaLook(model: Model)
+	local head = model:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		local s = head.Size
+		Outfit.attach(head, "Headscarf", Vector3.new(s.X * 1.15, s.Y * 0.75, s.Z * 1.1), CFrame.new(0, s.Y * 0.2, s.Z * 0.12), SCARF)
+	end
+	local hand = model:FindFirstChild("RightHand") or model:FindFirstChild("Right Arm")
+	if hand and hand:IsA("BasePart") then
+		Outfit.attach(hand, "Bag", Vector3.new(1, 1.1, 0.6), CFrame.new(0.3, -0.8, 0), BAG)
+	end
+end
+
+-- «Иногда тихо смеётся»: голова мелко трясётся. shortcut: звука смеха в Config.SOUNDS нет — когда появится, играть его здесь.
+local function laughSometimes(id: string, model: Model)
+	local neck = model:FindFirstChild("Neck", true)
+	if not (neck and neck:IsA("Motor6D")) then
+		return
+	end
+	local rest = neck.C0
+	task.spawn(function()
+		while model.Parent and truth[id] do
+			task.wait(math.random(LAUGH_EVERY_MIN, LAUGH_EVERY_MAX))
+			if not (model.Parent and truth[id]) then
+				break
+			end
+			log("бабушка тихо смеётся")
+			for i = 1, 6 do
+				neck.C0 = rest * CFrame.Angles(math.rad(if i % 2 == 0 then 7 else -4), 0, 0)
+				task.wait(0.12)
+			end
+			neck.C0 = rest
+		end
+	end)
+end
+
 function AnomalyService:GetHealth(): number
 	return health
 end
@@ -169,6 +209,18 @@ end
 function AnomalyService:Reward(amount: number)
 	earnedPlus += amount
 	payRiders(amount)
+end
+
+-- Есть ли в салоне аномалия этого типа (NightService: просьбы остановиться, V02).
+function AnomalyService:HasAboard(kindId: string): boolean
+	local passengers = registry.PassengerService
+	local aboard: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
+	for id, kind in truth do
+		if kind.Id == kindId and aboard[id] then
+			return true
+		end
+	end
+	return false
 end
 
 -- Сколько аномалий сейчас в салоне (ScareEventService: больше пугалок, когда они рядом).
@@ -238,6 +290,13 @@ function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): bo
 		turnHead(model)
 	elseif kind.Id == "WrongTicket" then
 		tickets[id] = ticket(true)
+	elseif kind.Id == "StrangeCoin" then
+		tickets[id].Coin = STRANGE_COINS[math.random(#STRANGE_COINS)]
+	elseif kind.Id == "Grandma" then
+		grandmaLook(model)
+		laughSometimes(id, model)
+	elseif kind.Id == "Standing" and passengers then
+		passengers:StandInAisle(id) -- в проходе в конце салона, спиной ко всем
 	end
 	log(`сел пассажир-аномалия: {kind.Name}`)
 	return true
@@ -409,6 +468,18 @@ function AnomalyService:Start()
 		local passengerId = id :: string
 		local data: { [string]: string } = if tool == "Ticket" then tickets[passengerId] or ticket(false) else {}
 		inspectResult:FireClient(player, passengerId, tool, data)
+		-- Правило ночи 4: на стоящего спиной не светить. Посветил — забирают (GhostService, V04) и правило нарушено.
+		local kind = truth[passengerId]
+		if tool == "Flashlight" and kind and kind.Id == "Standing" then
+			local nights, ghosts = registry.NightService, registry.GhostService
+			if nights then
+				nights:BreakRule()
+			end
+			log(`посветили на стоящего: забирают {player.Name}`)
+			if ghosts and ghosts.Take then
+				ghosts:Take(player, "flashlight_standing")
+			end
+		end
 	end)
 
 	Remotes.Event("EjectPassenger").OnServerEvent:Connect(function(player: Player, id: unknown)
