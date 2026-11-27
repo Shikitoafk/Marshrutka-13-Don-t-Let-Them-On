@@ -4,7 +4,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("Config"))
+local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 
 local Flashlight = {}
 
@@ -83,6 +85,7 @@ function Flashlight.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local isOn = false
 	local view: CFrame? = nil
+	local beamSlope = BEAM_SLOPE
 
 	local function clearUnused()
 		for part, original in originalTransparency do
@@ -127,7 +130,7 @@ function Flashlight.new()
 		local obstruction = Workspace:Raycast(origin, direction * BEAM_RANGE, rayParams)
 		local length = if obstruction then obstruction.Distance else BEAM_RANGE
 		endAttachment.Position = Vector3.new(0, 0, -length)
-		beam.Width1 = math.max(beam.Width0, length * 2 * BEAM_SLOPE)
+		beam.Width1 = math.max(beam.Width0, length * 2 * beamSlope)
 		light.Enabled = true
 		beam.Enabled = true
 	end
@@ -152,6 +155,17 @@ function Flashlight.new()
 		end
 		isOn = enabled
 		if enabled then
+			local id = player:GetAttribute("EquippedFlashlight")
+			local palette: { [string]: { color: Color3, angle: number } } = Cosmetics.Beams
+			local style = if type(id) == "string" then palette[id] or palette.Classic else palette.Classic
+			light.Angle = style.angle
+			light.Color = style.color
+			beam.Color = if id == "Rainbow" then ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 83, 105)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(96, 255, 181)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(124, 110, 255)),
+			}) else ColorSequence.new(style.color)
+			beamSlope = math.tan(math.rad(style.angle / 2))
 			emitter.Parent = Workspace
 			render(player.Character)
 			RunService:BindToRenderStep(RENDER_STEP, Enum.RenderPriority.Camera.Value + 1, function()
