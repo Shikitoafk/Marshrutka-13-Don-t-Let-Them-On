@@ -89,7 +89,6 @@ function AtmosphereController:Start()
 		ambient:Play()
 	end
 	local whispers = makeSound("Whispers", soundIds.Whispers, SoundService, 0.53, false)
-	local scare = makeSound("Jumpscare", soundIds.Jumpscare, SoundService, 0.7, false)
 
 	local roundState: string? = nil
 	local ended = false
@@ -173,9 +172,6 @@ function AtmosphereController:Start()
 		if whispers then
 			whispers:Stop()
 		end
-		if scare then
-			scare:Stop()
-		end
 	end
 
 	local function isRunning(): boolean
@@ -248,7 +244,6 @@ function AtmosphereController:Start()
 		clearEffects()
 		if summary.Won == false then
 			applyLightState(true, true)
-			replay(scare)
 		end
 	end
 
