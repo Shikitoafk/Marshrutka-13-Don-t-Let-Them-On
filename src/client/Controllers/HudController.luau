@@ -13,6 +13,11 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local Strings = require(Shared:WaitForChild("Strings"))
 
 local HudController = {}
+local openRules: (() -> ())? = nil
+
+function HudController:SetRulesHandler(handler: () -> ())
+	openRules = handler
+end
 
 local PANEL_COLOR = Color3.fromRGB(21, 28, 39)
 local TEXT_COLOR = Color3.fromRGB(250, 244, 231)
@@ -182,11 +187,7 @@ local function makeGuide(screen: ScreenGui): (Frame, { [string]: TextLabel })
 	return backdrop, hints
 end
 
-local rules: { Open: (any) -> () }? = nil
-
-function HudController:Init(controllers: { [string]: any })
-	rules = controllers.RulesController
-end
+function HudController:Init(_controllers: { [string]: any }) end
 
 function HudController:Start()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -274,9 +275,9 @@ function HudController:Start()
 		rulesSize.MaxSize = Vector2.new(48, 48)
 	end
 	rulesButton.Activated:Connect(function()
-		if rules and screen.Enabled then
+		if openRules and screen.Enabled then
 			guide.Visible = false
-			rules:Open()
+			openRules()
 		end
 	end)
 	guideButton.Activated:Connect(function()
