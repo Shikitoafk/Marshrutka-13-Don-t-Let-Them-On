@@ -1,5 +1,6 @@
 --!strict
 
+local BadgeService = game:GetService("BadgeService")
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -7,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Nights = require(Shared:WaitForChild("Nights"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AUTOSAVE_INTERVAL = 2 * 60
@@ -21,6 +23,8 @@ export type Profile = {
 	Tenge: number,
 	Stats: { [StatName]: number },
 	OwnedSkins: { string },
+	UnlockedNight: number,
+	BestStars: { [string]: number },
 }
 
 type Session = {
@@ -60,6 +64,16 @@ local function readProfile(raw: any): Profile
 	local data = if type(raw) == "table" then raw else {}
 	local stats = if type(data.Stats) == "table" then data.Stats else {}
 	local skins: { string } = {}
+	local bestStars: { [string]: number } = {}
+	if type(data.BestStars) == "table" then
+		for night = 1, #Nights do
+			local key = tostring(night)
+			local stars = asInteger(data.BestStars[key])
+			if stars and stars >= 1 and stars <= 3 then
+				bestStars[key] = stars
+			end
+		end
+	end
 	if type(data.OwnedSkins) == "table" then
 		for _, skin in ipairs(data.OwnedSkins) do
 			if type(skin) == "string" then
@@ -75,6 +89,8 @@ local function readProfile(raw: any): Profile
 			Caught = math.max(0, asInteger(stats.Caught) or 0),
 		},
 		OwnedSkins = skins,
+		UnlockedNight = math.clamp(asInteger(data.UnlockedNight) or 1, 1, #Nights),
+		BestStars = bestStars,
 	}
 end
 
@@ -83,6 +99,8 @@ local function copyProfile(profile: Profile): Profile
 		Tenge = profile.Tenge,
 		Stats = table.clone(profile.Stats),
 		OwnedSkins = table.clone(profile.OwnedSkins),
+		UnlockedNight = profile.UnlockedNight,
+		BestStars = table.clone(profile.BestStars),
 	}
 end
 
@@ -179,6 +197,7 @@ local function loadSession(session: Session)
 		session.expiresAt = expiresAt
 		if not session.closing and session.player.Parent == Players then
 			session.player:SetAttribute("ShowTutorial", not session.tutorialOffered)
+			session.player:SetAttribute("UnlockedNight", profile.UnlockedNight)
 			session.tutorialOffered = true
 			publishTenge(session.player, profile.Tenge)
 			if session.recovering then
@@ -250,6 +269,8 @@ local function saveSession(session: Session, final: boolean)
 		record.Tenge = snapshot.Tenge
 		record.Stats = stats
 		record.OwnedSkins = snapshot.OwnedSkins
+		record.UnlockedNight = snapshot.UnlockedNight
+		record.BestStars = snapshot.BestStars
 		record.TutorialOffered = tutorialOffered
 		metadata.SessionId = if final then nil else session.id
 		metadata.SessionExpiresAt = if final then nil else os.time() + LEASE_DURATION
@@ -304,6 +325,40 @@ function DataService:GetProfile(player: Player): Profile?
 	end
 	local profile = session.profile
 	return if profile then copyProfile(profile) else nil
+end
+
+function DataService:GetUnlockedNight(player: Player): number
+	local profile = mutableProfile(player)
+	return if profile then profile.UnlockedNight else 1
+end
+
+local function awardBadge(player: Player, id: number)
+	if id <= 0 or player.UserId <= 0 then return end
+	task.spawn(function()
+		local ok, err = pcall(function()
+			if not BadgeService:UserHasBadgeAsync(player.UserId, id) then
+				BadgeService:AwardBadgeAsync(player.UserId, id)
+			end
+		end)
+		if not ok then warn(`[DataService] Бейдж {id}: {err}`) end
+	end)
+end
+
+function DataService:RecordNight(player: Player, night: number, stars: number): boolean
+	if not asInteger(night) or not Nights[night] or not asInteger(stars) or stars < 1 or stars > 3 then
+		return false
+	end
+	local profile = mutableProfile(player)
+	if not profile then return false end
+
+	local key = tostring(night)
+	profile.BestStars[key] = math.max(profile.BestStars[key] or 0, stars)
+	profile.UnlockedNight = math.max(profile.UnlockedNight, math.min(night + 1, #Nights))
+	player:SetAttribute("UnlockedNight", profile.UnlockedNight)
+	local badges: { [string]: number } = Config.BADGES
+	awardBadge(player, badges["Night" .. key] or 0)
+	if stars == 3 then awardBadge(player, Config.BADGES.PerfectNight) end
+	return true
 end
 
 function DataService:AddTenge(player: Player, amount: number): boolean
