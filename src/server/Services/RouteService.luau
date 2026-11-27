@@ -311,6 +311,12 @@ function RouteService:Start()
 
 	local sinceBusState, sinceLog = 0, 0
 	RunService.Heartbeat:Connect(function(dt: number)
+		-- Автобус ведёт только сервер. Приварка новой детали к сидящему (платок бабушки) сбрасывает владельца на «авто»:
+		-- автобус начинает считать ближайший игрок, сервер видит его с опозданием — и уводит с дороги (проверено в Studio).
+		local ok, auto = pcall(root.GetNetworkOwnershipAuto, root)
+		if ok and auto then
+			pcall(root.SetNetworkOwner, root, nil)
+		end
 		sinceBusState += dt
 		if sinceBusState >= BUS_STATE_INTERVAL then
 			sinceBusState = 0

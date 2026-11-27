@@ -335,8 +335,7 @@ function PassengerService:Start()
 			p.model:PivotTo(seat.CFrame + Vector3.new(0, 3, 0)) -- рядом с сиденьем, потом Sit (ещё не приварен — можно)
 			p.model.Parent = passengersFolder
 			onboard[p.id] = p
-			-- Кем он будет, решаем ДО Sit: детали внешности (платок бабушки) нельзя приваривать к уже сидящему —
-			-- он сварен с автобусом, и автобус уводит с дороги (проверено в Studio).
+			-- Кем он будет, решаем ДО Sit: стоящему в проходе (Standing) сиденье не нужно — не сажаем и не снимаем.
 			-- Аномалия сама не выходит: едет, пока её не высадят. Особый пассажир едет бесплатно, его тип задан заранее.
 			local anomalies = registry.AnomalyService
 			local special = p.special
