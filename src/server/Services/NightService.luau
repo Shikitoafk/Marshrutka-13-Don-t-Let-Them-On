@@ -13,7 +13,6 @@ local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 local Outfit = require(script.Parent.Parent:WaitForChild("Outfit"))
 
 local SELECT_RATE = 5 -- NightSelect в секунду на игрока: сверх — отбрасываем до проверок
-local STOP_ASK_MIN, STOP_ASK_MAX = 6, 15 -- сек после отъезда, когда «пассажир» просит остановить (V02)
 local STOP_WATCH_STEP = 0.25 -- как часто смотрим, не встал ли водитель, пока просьба в силе
 local UNIFORM = Color3.fromRGB(30, 60, 150) -- синяя форма настоящего контролёра (правило ночи 5)
 local FAKE_UNIFORM = Color3.fromRGB(38, 44, 42) -- у фальшивого: почти чёрная и без жетона
@@ -228,7 +227,7 @@ function NightService:Start()
 			return
 		end
 		local myLeg, run = leg, runId
-		task.delay(math.random(STOP_ASK_MIN, STOP_ASK_MAX), function()
+		task.delay(math.random(Config.STOP_REQUEST_ASK_MIN, Config.STOP_REQUEST_ASK_MAX), function()
 			if leg ~= myLeg or run ~= runId or not anomalies:HasAboard("StopRequest") then
 				return
 			end
