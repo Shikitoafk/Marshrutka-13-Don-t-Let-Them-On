@@ -100,6 +100,12 @@ end
 
 function RulesController:Init(controllers: { [string]: any })
 	atmosphere = controllers.AtmosphereController
+	local hud = controllers.HudController
+	if hud then
+		hud:SetRulesHandler(function()
+			self:Open()
+		end)
+	end
 end
 
 function RulesController:Open()
