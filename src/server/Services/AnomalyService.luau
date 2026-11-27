@@ -152,10 +152,29 @@ local function copyLook(from: Model, to: Model)
 	end
 end
 
-local function turnHead(model: Model)
+-- Повернуть голову относительно исходного положения. Шея в старых R15 — Motor6D (C0), в новых ригах Roblox —
+-- AnimationConstraint: его Transform клиентам не передаётся, поэтому крутим Attachment0 (CFrame реплицируется).
+local function neckTurner(model: Model): ((CFrame) -> ())?
 	local neck = model:FindFirstChild("Neck", true)
 	if neck and neck:IsA("Motor6D") then
-		neck.C0 = neck.C0 * CFrame.Angles(0, math.pi, 0)
+		local rest = neck.C0
+		return function(turn: CFrame)
+			neck.C0 = rest * turn
+		end
+	elseif neck and neck:IsA("AnimationConstraint") and neck.Attachment0 then
+		local attachment = neck.Attachment0
+		local rest = attachment.CFrame
+		return function(turn: CFrame)
+			attachment.CFrame = rest * turn
+		end
+	end
+	return nil
+end
+
+local function turnHead(model: Model)
+	local turn = neckTurner(model)
+	if turn then
+		turn(CFrame.Angles(0, math.pi, 0))
 	end
 end
 
@@ -174,11 +193,10 @@ end
 
 -- «Иногда тихо смеётся»: голова мелко трясётся. shortcut: звука смеха в Config.SOUNDS нет — когда появится, играть его здесь.
 local function laughSometimes(id: string, model: Model)
-	local neck = model:FindFirstChild("Neck", true)
-	if not (neck and neck:IsA("Motor6D")) then
+	local turn = neckTurner(model)
+	if not turn then
 		return
 	end
-	local rest = neck.C0
 	task.spawn(function()
 		while model.Parent and truth[id] do
 			task.wait(math.random(LAUGH_EVERY_MIN, LAUGH_EVERY_MAX))
@@ -187,10 +205,10 @@ local function laughSometimes(id: string, model: Model)
 			end
 			log("бабушка тихо смеётся")
 			for i = 1, 6 do
-				neck.C0 = rest * CFrame.Angles(math.rad(if i % 2 == 0 then 7 else -4), 0, 0)
+				turn(CFrame.Angles(math.rad(if i % 2 == 0 then 7 else -4), 0, 0))
 				task.wait(0.12)
 			end
-			neck.C0 = rest
+			turn(CFrame.identity)
 		end
 	end)
 end
