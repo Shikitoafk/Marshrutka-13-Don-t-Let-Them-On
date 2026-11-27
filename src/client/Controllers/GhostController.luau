@@ -14,7 +14,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local Strings = require(Shared:WaitForChild("Strings"))
 
 local GhostController = {}
-type GhostData = { FreeRevives: number? }
+type GhostData = { RevivesLeft: number? }
 local BG = Color3.fromRGB(32, 43, 58)
 local FG = Color3.fromRGB(250, 244, 231)
 
@@ -133,6 +133,7 @@ function GhostController:Start()
 	local ghost = false
 	local freeRevives: number? = nil
 	local pending = false
+	local nextReturnAt = 0
 	local reviveRequest = Remotes.Event("ReviveRequest")
 	local ghostAction = Remotes.Event("GhostAction")
 
@@ -170,12 +171,7 @@ function GhostController:Start()
 			if screen.Enabled then muffle(instance) end
 		end)
 	end
-	player:GetAttributeChangedSignal("ReviveCredits"):Connect(function()
-		updateButton()
-		if screen.Enabled and hasCredit() and freeRevives == 0 then
-			reviveRequest:FireServer()
-		end
-	end)
+	player:GetAttributeChangedSignal("ReviveCredits"):Connect(updateButton)
 
 	knock.Activated:Connect(function()
 		if not screen.Enabled then return end
@@ -192,6 +188,9 @@ function GhostController:Start()
 	end)
 	revive.Activated:Connect(function()
 		if not screen.Enabled or not revive.Active then return end
+		local now = os.clock()
+		if now < nextReturnAt then return end
+		nextReturnAt = now + 0.8
 		if freeRevives == nil or freeRevives > 0 or hasCredit() then
 			reviveRequest:FireServer()
 		else
@@ -212,7 +211,7 @@ function GhostController:Start()
 
 	local function applyGhost(isGhost: boolean, data: GhostData?)
 		ghost = isGhost == true
-		local count = if type(data) == "table" then data.FreeRevives else nil
+		local count = if type(data) == "table" then data.RevivesLeft else nil
 		freeRevives = if type(count) == "number" then math.max(0, count) else nil
 		update()
 	end
@@ -221,6 +220,7 @@ function GhostController:Start()
 		running = state == "Running"
 		if not running then
 			ghost, pending, freeRevives = false, false, nil
+			nextReturnAt = 0
 		end
 		update()
 	end)
@@ -231,7 +231,7 @@ function GhostController:Start()
 		preview.Parent = gui
 		preview.Event:Connect(function(enabled: boolean, count: number?)
 			running = true
-			applyGhost(enabled, { FreeRevives = count })
+			applyGhost(enabled, { RevivesLeft = count })
 		end)
 	end
 end
