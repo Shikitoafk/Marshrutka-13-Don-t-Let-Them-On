@@ -69,6 +69,14 @@ function RouteService:IsFinished(): boolean
 	return isFinished()
 end
 
+-- Стоит посреди перегона: рейс идёт, двери закрыты, скорость ~0, не в зоне остановки (правило ночи 5, V02).
+local stoppedBetween = function(): boolean
+	return false
+end
+function RouteService:IsStoppedBetweenStops(): boolean
+	return stoppedBetween()
+end
+
 -- Точка на дороге в d studs от начала; за концами — продолжение крайнего отрезка.
 local function positionAt(d: number): Vector3
 	local n = #path
@@ -303,6 +311,12 @@ function RouteService:Start()
 
 	local sinceBusState, sinceLog = 0, 0
 	RunService.Heartbeat:Connect(function(dt: number)
+		-- Автобус ведёт только сервер. Приварка новой детали к сидящему (платок бабушки) сбрасывает владельца на «авто»:
+		-- автобус начинает считать ближайший игрок, сервер видит его с опозданием — и уводит с дороги (проверено в Studio).
+		local ok, auto = pcall(root.GetNetworkOwnershipAuto, root)
+		if ok and auto then
+			pcall(root.SetNetworkOwner, root, nil)
+		end
 		sinceBusState += dt
 		if sinceBusState >= BUS_STATE_INTERVAL then
 			sinceBusState = 0
@@ -389,6 +403,18 @@ function RouteService:Start()
 	end
 	isFinished = function(): boolean
 		return finished
+	end
+	stoppedBetween = function(): boolean
+		-- departAt: на старте рейса и после закрытия дверей автобус ещё законно стоит
+		if not running or finished or doorsOpen or time() < departAt or speed >= STOPPED_SPEED then
+			return false
+		end
+		for _, s in stops do
+			if distance >= s.from and distance <= s.to then
+				return false
+			end
+		end
+		return true
 	end
 	stopRun = function()
 		finished = true

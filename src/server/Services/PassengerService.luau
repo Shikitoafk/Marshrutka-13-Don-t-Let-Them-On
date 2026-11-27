@@ -16,12 +16,16 @@ local NPC_WALK_SPEED = 12
 local MAX_WALK_TIME = 4 -- сек: столько максимум идём к двери, потом садимся или остаёмся
 local EXIT_TIME = 2 -- сек: вышедший отходит от автобуса и исчезает
 local DOOR_STEP_OUT = 2 -- studs от двери наружу: куда подходят и откуда уходят
+local AISLE_BACK_Z = 11 -- studs назад от центра автобуса: где в проходе стоит Standing (V02)
+local STAND_STEP = 3
 
 -- Цвета для простых пассажиров, если в ServerStorage.PassengerRigs пусто.
 local SKIN = { Color3.fromRGB(234, 192, 158), Color3.fromRGB(198, 145, 105), Color3.fromRGB(141, 95, 64), Color3.fromRGB(255, 220, 190) }
 local CLOTHES = { Color3.fromRGB(60, 70, 90), Color3.fromRGB(120, 40, 40), Color3.fromRGB(70, 90, 60), Color3.fromRGB(90, 90, 90), Color3.fromRGB(150, 120, 60), Color3.fromRGB(40, 40, 45) }
 
-type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, keptExit: number?, seat: Seat? }
+-- Особый пассажир (контролёр, V03): kind — Id аномалии, которой он станет (nil — человек, на аномалию не проверяем).
+type Special = { kind: string?, onBoarded: (id: string) -> () }
+type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, keptExit: number?, seat: Seat?, special: Special?, standing: boolean? }
 
 local PassengerService = {}
 
@@ -69,6 +73,12 @@ local function unseat(p: Passenger)
 	local weld = if seatPart then seatPart:FindFirstChild("SeatWeld") else nil
 	if weld then
 		weld:Destroy()
+	end
+	local body = p.model:FindFirstChild("HumanoidRootPart")
+	local stand = if body then body:FindFirstChild("StandWeld") else nil
+	if stand then
+		stand:Destroy() -- стоявший в проходе приварен к автобусу: иначе PivotTo утащил бы автобус
+		p.humanoid.PlatformStand = false
 	end
 	p.humanoid.Sit = false
 	if p.seat then
@@ -132,6 +142,22 @@ local ejectNow = function(_id: string): boolean
 end
 function PassengerService:Eject(id: string): boolean
 	return ejectNow(id)
+end
+
+-- Особый пассажир на остановке stop (зовите на её Approaching): садится первым, без платы за проезд,
+-- выходит на следующей (если kind — аномалия, то только когда высадят). dress одевает модель. Возвращает PassengerId.
+local spawnSpecialNow = function(_stop: number, _dress: (Model) -> (), _special: Special): string?
+	return nil
+end
+function PassengerService:SpawnSpecial(stop: number, dress: (Model) -> (), kind: string?, onBoarded: (id: string) -> ()): string?
+	return spawnSpecialNow(stop, dress, { kind = kind, onBoarded = onBoarded })
+end
+
+-- Встать в проходе в конце салона спиной ко всем (аномалия Standing, V02): место освобождается,
+-- пассажир приварен к автобусу, чтобы на ходу не сносило.
+local standNow = function(_id: string) end
+function PassengerService:StandInAisle(id: string)
+	standNow(id)
 end
 
 function PassengerService:Init(services: { [string]: any })
@@ -216,11 +242,11 @@ function PassengerService:Start()
 		end
 	end
 
-	local function spawnWaiter(stop: number)
+	local function spawnWaiter(stop: number, dress: ((Model) -> ())?, special: Special?): string?
 		local zone = zones[stop]
 		local spawnPart = if zone then zone:FindFirstChild("Spawn") else nil
 		if not (zone and spawnPart and spawnPart:IsA("BasePart")) then
-			return
+			return nil
 		end
 		local model = makeModel()
 		local humanoid = if model then model:FindFirstChildOfClass("Humanoid") else nil
@@ -229,7 +255,10 @@ function PassengerService:Start()
 			if model then
 				model:Destroy()
 			end
-			return
+			return nil
+		end
+		if dress then
+			dress(model)
 		end
 		local id = HttpService:GenerateGUID(false)
 		model.Name = "Passenger"
@@ -242,7 +271,43 @@ function PassengerService:Start()
 		model.Parent = zone
 		pcall(body.SetNetworkOwner, body, nil) -- ходит сервер, а не ближайший игрок
 		waiting[stop] = waiting[stop] or {}
-		table.insert(waiting[stop], { id = id, model = model, humanoid = humanoid, exitStop = math.random(stop + 1, lastStop), keptExit = nil, seat = nil })
+		local exitStop = if special then math.min(stop + 1, lastStop) else math.random(stop + 1, lastStop)
+		local p: Passenger = { id = id, model = model, humanoid = humanoid, exitStop = exitStop, keptExit = nil, seat = nil, special = special }
+		table.insert(waiting[stop], if special then 1 else #waiting[stop] + 1, p) -- особый — первым, чтобы точно хватило места
+		return id
+	end
+	spawnSpecialNow = function(stop: number, dress: (Model) -> (), special: Special): string?
+		return spawnWaiter(stop, dress, special)
+	end
+
+	-- Пол салона — от низа сиденья (как в RoundService): работает и с настоящим автобусом.
+	local floorY = 0
+	for _, seat in seatsFolder:GetChildren() do
+		if seat:IsA("BasePart") then
+			floorY = root.CFrame:PointToObjectSpace(seat.Position).Y - seat.Size.Y / 2
+			break
+		end
+	end
+	local standing = 0
+	standNow = function(id: string)
+		local p = onboard[id]
+		local body = if p then p.model:FindFirstChild("HumanoidRootPart") else nil
+		if not (p and body and body:IsA("BasePart")) then
+			return
+		end
+		unseat(p)
+		p.standing = true
+		standing += 1
+		local back = AISLE_BACK_Z - STAND_STEP * ((standing - 1) % 3) -- не друг в друге, если стоящих несколько
+		local height = floorY + p.humanoid.HipHeight + body.Size.Y / 2
+		-- Вперёд у автобуса — −Z; поворот на 180° — лицом к задней стенке, спиной к салону.
+		p.model:PivotTo(root.CFrame * CFrame.new(0, height, back) * CFrame.Angles(0, math.pi, 0))
+		p.humanoid.AutoRotate = false
+		p.humanoid.PlatformStand = true -- иначе Humanoid держит равновесие силами и толкает автобус, к которому приварен
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "StandWeld"
+		weld.Part0, weld.Part1 = root, body
+		weld.Parent = body
 	end
 
 	local function board(p: Passenger, stop: number)
@@ -268,16 +333,28 @@ function PassengerService:Start()
 			end
 			table.remove(waiting[stop], index)
 			p.model:PivotTo(seat.CFrame + Vector3.new(0, 3, 0)) -- рядом с сиденьем, потом Sit (ещё не приварен — можно)
-			seat:Sit(p.humanoid)
 			p.model.Parent = passengersFolder
 			onboard[p.id] = p
-			-- Аномалия сама не выходит: едет, пока её не высадят.
+			-- Кем он будет, решаем ДО Sit: стоящему в проходе (Standing) сиденье не нужно — не сажаем и не снимаем.
+			-- Аномалия сама не выходит: едет, пока её не высадят. Особый пассажир едет бесплатно, его тип задан заранее.
 			local anomalies = registry.AnomalyService
-			if anomalies and anomalies:OnBoarded(p.id, p.model) then
+			local special = p.special
+			if special then
+				if special.kind and anomalies and anomalies:OnBoarded(p.id, p.model, special.kind) then
+					PassengerService:KeepAboard(p.id)
+				end
+			elseif anomalies and anomalies:OnBoarded(p.id, p.model) then
 				PassengerService:KeepAboard(p.id)
 			end
+			if not p.standing then
+				seat:Sit(p.humanoid)
+			end
 			passengerBoarded:FireAllClients(p.id)
-			payFare()
+			if special then
+				special.onBoarded(p.id)
+			else
+				payFare()
+			end
 			log(`Остановка {stop}: сел пассажир (выйдет на {p.exitStop})`)
 		end)
 	end
