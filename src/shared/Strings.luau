@@ -35,6 +35,9 @@ local catalog: { [string]: Translation } = {
 	["hud.role_pending"] = { en = "Role —", ru = "Роль —" },
 	["hud.stop"] = { en = "Stop {index}/{total} · {name}", ru = "Остановка {index}/{total} · {name}" },
 	["hud.stop_pending"] = { en = "Stop —/{total}", ru = "Остановка —/{total}" },
+	["hud.stop_announcement"] = { en = "Next stop: {name}", ru = "Следующая остановка: {name}" },
+	["hud.stop_distance"] = { en = "To the stop: {meters} m", ru = "До остановки: {meters} м" },
+	["hud.open_doors"] = { en = "Open the doors", ru = "Открывай двери" },
 	["hud.health"] = { en = "Health {value}/{max}", ru = "Прочность {value}/{max}" },
 	["hud.health_pending"] = { en = "Health —", ru = "Прочность —" },
 	["conductor.passenger"] = { en = "Passenger", ru = "Пассажир" },
@@ -75,8 +78,12 @@ local catalog: { [string]: Translation } = {
 	["results.preview_toast"] = { en = "Preview toast", ru = "Пример тоста" },
 	["notify.next_stop"] = { en = "Next stop", ru = "Следующая остановка" },
 	["notify.doors_open"] = { en = "The doors are still open.", ru = "Двери ещё открыты" },
-	["notify.anomaly_ejected"] = { en = "Anomaly ejected.", ru = "Аномалия высажена" },
-	["notify.human_ejected"] = { en = "That passenger was human.", ru = "Пассажир был человеком" },
+	["notify.anomaly_ejected"] = { en = "Ejected: {anomaly} · +{reward} ₸", ru = "Высажена аномалия «{anomaly}» · +{reward} ₸" },
+	["notify.human_ejected"] = { en = "That passenger was human · −{penalty} ₸", ru = "Пассажир был человеком · −{penalty} ₸" },
+	["notify.amulet_saved"] = { en = "{player}'s amulet saved the bus!", ru = "Оберег игрока {player} спас автобус!" },
+	["toast.anomaly_ejected"] = { en = "Anomaly ejected.", ru = "Аномалия высажена" },
+	["toast.human_ejected"] = { en = "That passenger was human.", ru = "Пассажир был человеком" },
+	["toast.amulet_saved"] = { en = "An amulet saved the bus!", ru = "Оберег спас автобус!" },
 	["notify.trip_finished"] = { en = "Last stop! The trip is over.", ru = "Конечная! Рейс окончен" },
 	["notify.returned_to_bus"] = { en = "You fell behind and were returned to the cabin.", ru = "Ты отстал от маршрутки — вернули в салон" },
 	["notify.balance_unavailable"] = { en = "Your balance is temporarily unavailable.", ru = "Баланс временно недоступен." },
@@ -94,7 +101,7 @@ local catalog: { [string]: Translation } = {
 	["anomaly.NoReflection.name"] = { en = "No reflection", ru = "Без отражения" },
 	["anomaly.NoReflection.hint"] = { en = "Look in the mirror. Is anyone missing?", ru = "Посмотри в зеркало: кого-то из пассажиров в нём нет?" },
 	["anomaly.WrongTicket.name"] = { en = "A ticket from 1986", ru = "Билет из 1986-го" },
-	["anomaly.WrongTicket.hint"] = { en = "Check each ticket for the current route number and today's date.", ru = "Проверь билеты: дата и номер маршрута должны быть сегодняшними." },
+	["anomaly.WrongTicket.hint"] = { en = "Check the tickets for route No. 13 and the current year.", ru = "Проверь билеты: маршрут должен быть №13, а год — нынешний." },
 	["anomaly.NoShadow.name"] = { en = "Ghost", ru = "Призрак" },
 	["anomaly.NoShadow.hint"] = { en = "Shine your flashlight on them. Some passengers turn see-through.", ru = "Посвети фонариком: сквозь некоторых пассажиров просвечивает." },
 	["anomaly.GlowingEyes.name"] = { en = "Glowing eyes", ru = "Светящиеся глаза" },
@@ -104,13 +111,6 @@ local catalog: { [string]: Translation } = {
 	["anomaly.WrongHead.name"] = { en = "Head turned backwards", ru = "Голова задом наперёд" },
 	["anomaly.WrongHead.hint"] = { en = "Look closely at which way each passenger is facing.", ru = "Присмотрись, куда смотрят пассажиры. Все ли смотрят вперёд?" },
 }
-
-local legacyNotify: { [string]: string } = {}
-for key, entry in catalog do
-	if string.sub(key, 1, 7) == "notify." then
-		legacyNotify[entry.ru] = key
-	end
-end
 
 local locale = LocalizationService.RobloxLocaleId
 if RunService:IsStudio() then
@@ -152,7 +152,31 @@ function Strings.stopName(index: number, fallback: string?): string
 end
 
 function Strings.notify(key: string, parameters: Parameters?): string
-	return Strings.get(legacyNotify[key] or key, parameters)
+	if string.sub(key, 1, 7) ~= "notify." then
+		return key
+	end
+	local params: Parameters = if type(parameters) == "table" then parameters else {}
+	if key == "notify.anomaly_ejected" then
+		local anomalyId, reward = params.anomalyId, params.reward
+		if type(anomalyId) == "string" and type(reward) == "number" then
+			local nameKey = `anomaly.{anomalyId}.name`
+			if catalog[nameKey] then
+				return Strings.get(key, { anomaly = Strings.get(nameKey), reward = reward })
+			end
+		end
+		return Strings.get("toast.anomaly_ejected")
+	elseif key == "notify.human_ejected" then
+		local penalty = params.penalty
+		return if type(penalty) == "number"
+			then Strings.get(key, { penalty = math.abs(penalty) })
+			else Strings.get("toast.human_ejected")
+	elseif key == "notify.amulet_saved" then
+		local player = params.player
+		return if type(player) == "string" and player ~= ""
+			then Strings.get(key, { player = player })
+			else Strings.get("toast.amulet_saved")
+	end
+	return Strings.get(key, params)
 end
 
 return table.freeze(Strings)
