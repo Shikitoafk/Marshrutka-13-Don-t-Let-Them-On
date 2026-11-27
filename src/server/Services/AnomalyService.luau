@@ -1,8 +1,8 @@
 --!strict
--- Аномалии. При посадке пассажир с шансом ANOMALY_CHANCE становится аномалией (не больше MAX_ANOMALIES_AT_ONCE):
--- тип по Weight. Правда хранится ТОЛЬКО здесь, на модель ставится лишь подсказка (CueAttribute).
--- Кондукторы проверяют (InspectPassenger) и высаживают (EjectPassenger). Аномалия в салоне на отъезде от остановки —
--- урон и эскалация; прочность 0 — Оберег или поражение. Итоги рейса (RunEnded) тоже отсюда.
+-- Аномалии. При посадке пассажир с шансом ночи (Nights.luau через NightService) становится аномалией
+-- (не больше MAX_ANOMALIES_AT_ONCE): тип по весам ночи. Правда хранится ТОЛЬКО здесь, на модель ставится лишь подсказка (CueAttribute).
+-- Кондукторы проверяют (InspectPassenger) и высаживают (EjectPassenger). Опасная аномалия в салоне на отъезде от остановки —
+-- урон и эскалация; «свою» (Safe) высадил — штраф и проклятие. Прочность 0 — Оберег или поражение. Итоги рейса (RunEnded) тоже отсюда.
 
 local RunService = game:GetService("RunService")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
@@ -10,12 +10,20 @@ local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
+local Nights = require(Shared:WaitForChild("Nights"))
 
 type AnomalyType = AnomalyTypes.AnomalyType
 
 local MAX_ID_LENGTH = 64 -- GUID короче; длиннее — мусор от клиента
 local TOOL_RATE = 5 -- Inspect/Eject в секунду на игрока: сверх — отбрасываем до проверок
 local WRONG_ROUTES = { "№31", "№18", "№130" }
+-- shortcut: у этих аномалий ещё нет поведения и примет (V02) — до него из пула ночи их не выдаём.
+local NOT_YET = { StrangeCoin = true, Grandma = true, Standing = true, StopRequest = true }
+
+local byId: { [string]: AnomalyType } = {}
+for _, kind in AnomalyTypes do
+	byId[kind.Id] = kind
+end
 
 local AnomalyService = {}
 
@@ -75,24 +83,42 @@ local function ticket(wrong: boolean): { [string]: string }
 	return { Route = route, Date = string.sub(today, 1, 6) .. "1986" }
 end
 
--- Тип по Weight; двойник — только если есть с кого копировать.
-local function pickType(canTwin: boolean): AnomalyType
+-- Тип по весам ночи; двойник — только если есть с кого копировать. Пустой пул — nil (пассажир обычный).
+local function pickType(pool: { [string]: number }, canTwin: boolean): AnomalyType?
+	local function usable(id: string): boolean
+		return byId[id] ~= nil and not NOT_YET[id] and (canTwin or id ~= "Twin")
+	end
 	local total = 0
-	for _, kind in AnomalyTypes do
-		if canTwin or kind.Id ~= "Twin" then
-			total += kind.Weight
+	for id, weight in pool do
+		if usable(id) then
+			total += weight
 		end
 	end
+	if total <= 0 then
+		return nil
+	end
 	local roll = math.random() * total
-	for _, kind in AnomalyTypes do
-		if canTwin or kind.Id ~= "Twin" then
-			roll -= kind.Weight
+	local last: AnomalyType? = nil
+	for id, weight in pool do
+		if usable(id) then
+			last = byId[id]
+			roll -= weight
 			if roll <= 0 then
-				return kind
+				return last
 			end
 		end
 	end
-	return AnomalyTypes[1]
+	return last
+end
+
+-- Опасная — та, что бьёт автобус и которую надо высадить. «Свои» (Safe) и особые (Special) живут по своим правилам.
+local function dangerous(kind: AnomalyType): boolean
+	return (kind.Class or "Dangerous") == "Dangerous"
+end
+
+local function nightData(): Nights.Night
+	local nights = registry.NightService
+	return if nights then nights:GetNightData() else Nights[1]
 end
 
 local function twinOfValues(): { string }
@@ -138,8 +164,8 @@ function AnomalyService:CountAboard(): number
 	local passengers = registry.PassengerService
 	local aboard: { [string]: Model } = if passengers then passengers:GetOnboard() else {}
 	local count = 0
-	for id in truth do
-		if aboard[id] then
+	for id, kind in truth do
+		if aboard[id] and dangerous(kind) then
 			count += 1
 		end
 	end
@@ -154,7 +180,8 @@ function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	for _ in truth do
 		count += 1
 	end
-	if count >= Config.MAX_ANOMALIES_AT_ONCE or math.random() >= Config.ANOMALY_CHANCE then
+	local night = nightData()
+	if count >= Config.MAX_ANOMALIES_AT_ONCE or math.random() >= night.AnomalyChance then
 		return false
 	end
 	local passengers = registry.PassengerService
@@ -168,7 +195,10 @@ function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	end
 	local originalId: string? = if #candidates > 0 then candidates[math.random(#candidates)] else nil
 	local original = if originalId then aboard[originalId] else nil
-	local kind = pickType(originalId ~= nil)
+	local kind = pickType(night.Anomalies, originalId ~= nil)
+	if not kind then
+		return false
+	end
 	truth[id] = kind
 	boardedAt[id] = atStop
 	if kind.CueAttribute then
@@ -187,12 +217,16 @@ function AnomalyService:OnBoarded(id: string, model: Model): boolean
 	return true
 end
 
--- RoundService зовёт в конце рейса (победа или поражение): итоги каждому, бонус, статистика.
+-- RoundService зовёт в конце рейса (победа или поражение): итоги каждому, звёзды ночи, бонус, статистика.
 function AnomalyService:FinishRun(won: boolean)
 	runActive = false
 	local data, shop = registry.DataService, registry.MonetizationService
+	local nights, ghosts = registry.NightService, registry.GhostService
 	local bonus = if won then Config.FINISH_BONUS else 0
-	for _, player in riders() do
+	local list = riders()
+	local stars = if nights then nights:FinishRun(won, mistakes, hits, list) else 0
+	local taken = if ghosts and ghosts.CountTaken then ghosts:CountTaken() else 0 -- GhostService (V04)
+	for _, player in list do
 		local vip = shop ~= nil and shop:HasVIP(player) -- x2 к плюсам делает DataService; в итогах считаем так же
 		Remotes.Event("RunEnded"):FireClient(player, {
 			Won = won,
@@ -200,6 +234,9 @@ function AnomalyService:FinishRun(won: boolean)
 			Caught = caught,
 			Mistakes = mistakes,
 			StopsReached = stopsReached,
+			Night = if nights then nights:GetNight() else 1,
+			Stars = stars,
+			Taken = taken,
 		})
 		if data then
 			task.spawn(function()
@@ -302,9 +339,9 @@ function AnomalyService:Start()
 		end
 		if phase == "Departed" then
 			local aboard = passengers:GetOnboard()
-			for id in truth do
+			for id, kind in truth do
 				-- севшая на этой же остановке ещё не бьёт: у кондукторов должен быть целый перегон
-				if aboard[id] and (boardedAt[id] or 0) < index then
+				if aboard[id] and dangerous(kind) and (boardedAt[id] or 0) < index then
 					damage()
 				end
 			end
@@ -378,7 +415,14 @@ function AnomalyService:Start()
 			end
 			passengers:ReleaseAboard(partner)
 		end
-		if kind then
+		if kind and kind.Class == "Safe" then
+			-- «Свою» высадили: штраф, ошибка (минус ★★) и проклятие — мигает свет.
+			mistakes += 1
+			earnedMinus -= Config.SAFE_EJECT_PENALTY
+			payRiders(-Config.SAFE_EJECT_PENALTY)
+			notifyRiders("notify.safe_ejected", "Bad", { penalty = Config.SAFE_EJECT_PENALTY })
+			escalated:FireAllClients(hits, "LightsFlicker")
+		elseif kind then
 			caught += 1
 			earnedPlus += Config.CATCH_REWARD
 			payRiders(Config.CATCH_REWARD)

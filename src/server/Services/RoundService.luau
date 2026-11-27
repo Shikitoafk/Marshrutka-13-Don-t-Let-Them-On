@@ -36,6 +36,18 @@ function RoundService:EndRun(won: boolean)
 	endRunNow(won)
 end
 
+-- Лидер лобби (V2): первый из готовых, выбирает ночь. Вне лобби и отсчёта — nil.
+local leaderNow = function(): Player? return nil end
+function RoundService:GetLeader(): Player?
+	return leaderNow()
+end
+
+-- Разослать всем текущий RoundState (NightService: сменилась выбранная ночь).
+local broadcastNow = function() end
+function RoundService:Broadcast()
+	broadcastNow()
+end
+
 function RoundService:Start()
 	local roles = registry.RoleService
 	local route = registry.RouteService
@@ -58,6 +70,7 @@ function RoundService:Start()
 
 	local state = "Lobby"
 	local ready: { [string]: boolean } = {} -- [tostring(UserId)] = true
+	local readyOrder: { Player } = {} -- готовые по порядку нажатия; первый — лидер
 	local countdownEndsAt = 0
 	local boarded: { [Player]: boolean } = {}
 	local lastReadyAt: { [Player]: number } = {}
@@ -69,16 +82,45 @@ function RoundService:Start()
 	end
 
 	local function snapshot(): { [string]: any }
-		if state == "Lobby" then
-			return { Ready = ready }
-		elseif state == "Countdown" then
-			return { Ready = ready, CountdownEndsAt = countdownEndsAt }
+		if state ~= "Lobby" and state ~= "Countdown" then
+			return {}
 		end
-		return {}
+		local nights, leader = registry.NightService, readyOrder[1]
+		return {
+			Ready = ready,
+			CountdownEndsAt = if state == "Countdown" then countdownEndsAt else nil,
+			Night = if nights then nights:GetNight() else 1, -- V2: выбранная ночь
+			Leader = if leader then leader.UserId else nil, -- V2: кто выбирает ночь
+		}
 	end
 
 	local function broadcast()
 		roundState:FireAllClients(state, snapshot())
+	end
+	broadcastNow = broadcast
+	leaderNow = function(): Player?
+		return if state == "Lobby" or state == "Countdown" then readyOrder[1] else nil
+	end
+
+	-- Готовность игрока; сменился лидер — NightService проверит, открыта ли у него выбранная ночь.
+	local function setReady(player: Player, isReady: boolean)
+		local before = readyOrder[1]
+		local index = table.find(readyOrder, player)
+		if isReady then
+			ready[tostring(player.UserId)] = true
+			if not index then
+				table.insert(readyOrder, player)
+			end
+		else
+			ready[tostring(player.UserId)] = nil
+			if index then
+				table.remove(readyOrder, index)
+			end
+		end
+		local nights = registry.NightService
+		if readyOrder[1] ~= before and nights then
+			nights:OnLeaderChanged(readyOrder[1])
+		end
 	end
 
 	local function endRun(won: boolean)
@@ -164,6 +206,7 @@ function RoundService:Start()
 		table.clear(riders)
 		table.clear(boarded)
 		table.clear(ready)
+		table.clear(readyOrder)
 		for _, player in Players:GetPlayers() do
 			if #riders < Config.MAX_PLAYERS_PER_BUS then
 				table.insert(riders, player)
@@ -176,7 +219,11 @@ function RoundService:Start()
 		end
 		roles:AssignRoles(riders) -- сначала каждому RoleAssigned,
 		state = "Running"
-		broadcast() -- потом RoundState("Running")
+		broadcast() -- потом RoundState("Running"),
+		local nights = registry.NightService
+		if nights then
+			nights:StartRun(riders) -- потом NightInfo
+		end
 		route:StartRun()
 		checkRiders() -- сразу сажаем всех в автобус
 	end
@@ -198,11 +245,7 @@ function RoundService:Start()
 			return
 		end
 		lastReadyAt[player] = time()
-		if isReady then
-			ready[tostring(player.UserId)] = true
-		else
-			ready[tostring(player.UserId)] = nil
-		end
+		setReady(player, isReady)
 		if next(ready) == nil then
 			state = "Lobby" -- все передумали — отсчёт отменяется
 		elseif state == "Lobby" then
@@ -211,13 +254,17 @@ function RoundService:Start()
 		broadcast()
 	end)
 
-	-- Новому игроку — снимок состояния; если рейс идёт и есть место — он кондуктор (роль раньше снимка).
+	-- Новому игроку — снимок состояния; если рейс идёт и есть место — он кондуктор (роль раньше снимка, ночь после).
 	local function welcome(player: Player)
 		if state == "Running" and #riders < Config.MAX_PLAYERS_PER_BUS and not table.find(riders, player) then
 			table.insert(riders, player)
 			roles:AddConductor(player)
 		end
 		roundState:FireClient(player, state, snapshot())
+		local nights = registry.NightService
+		if state == "Running" and nights and table.find(riders, player) then
+			nights:SendInfo(player)
+		end
 	end
 	Players.PlayerAdded:Connect(welcome)
 	for _, player in Players:GetPlayers() do
@@ -233,7 +280,7 @@ function RoundService:Start()
 		end
 		local key = tostring(player.UserId)
 		if ready[key] then
-			ready[key] = nil
+			setReady(player, false)
 			if state == "Countdown" and next(ready) == nil then
 				state = "Lobby"
 			end
