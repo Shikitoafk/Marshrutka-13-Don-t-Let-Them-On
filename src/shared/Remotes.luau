@@ -23,6 +23,9 @@ local EVENTS = {
 	"InspectPassenger", -- (passengerId: string, tool: "Ticket" | "Flashlight")
 	"EjectPassenger", -- (passengerId: string)
 	"LobbyReady", -- (ready: boolean)
+	"NightSelect", -- (night: number) — лидер рейса выбирает ночь в лобби (V2)
+	"GhostAction", -- (action: "Knock" | "Flicker", passengerId: string?) — призрак помогает живым (V2)
+	"ReviveRequest", -- () — бесплатное возрождение, если осталось (V2)
 
 	-- Сервер -> Клиент
 	"RoundState", -- (state: string, data: {[string]: any})
@@ -35,6 +38,10 @@ local EVENTS = {
 	"AnomalyEscalated", -- (level: number, effect: string)
 	"RunEnded", -- (summary: {[string]: any})
 	"CurrencyChanged", -- (tenge: number)
+	"NightInfo", -- (night: number, rules: {string}, data: {[string]: any}) — ночь и её правила (V2)
+	"PlayerTaken", -- (userId: number, reason: string) — игрока забрали, он стал призраком (V2)
+	"PlayerRevived", -- (userId: number) (V2)
+	"GhostState", -- (isGhost: boolean, data: {[string]: any}) — только самому игроку (V2)
 	"ScareEvent", -- (name: string, data: {[string]: any}) — пугалка, клиент показывает эффект (см. ARCHITECTURE)
 	"Notify", -- (key: string, kind: "Info" | "Warn" | "Good" | "Bad", params: {[string]: any}?) — ключ из Strings.luau
 }

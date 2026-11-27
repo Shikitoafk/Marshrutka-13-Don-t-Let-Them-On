@@ -46,6 +46,12 @@
 2. Нажать **Play** (или **Test → 2 Players**, чтобы проверить кооп).
 3. Нашёл баг — опиши оркестратору: что делал, что ожидал, что случилось, текст ошибки из Output.
 
+## Звуки
+
+`assets/sounds/*.ogg` — 14 звуков, сгенерированы с нуля скриптом `tools/sfx/make_sounds.py` (python3 + numpy + scipy).
+Чтобы звук заработал в игре: загрузить файл в Roblox (Creator Hub → Creations → Development Items → Audio → Import,
+или в Studio: окно Asset Manager → Bulk Import), скопировать ID и вписать в `Config.SOUNDS`.
+
 ## Публикация
 
 File → Publish to Roblox. Для сохранений: Game Settings → Security → **Enable Studio Access to API Services**.

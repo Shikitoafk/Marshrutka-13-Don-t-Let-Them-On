@@ -35,6 +35,13 @@
 | `PassengerService` | Спавн NPC на остановках, посадка на места, выход, плата за проезд |
 | `AnomalyService` | Какие пассажиры аномалии, подсказки (атрибуты), проверки, высадка, эскалация, прочность |
 
+### Сервер V2 (владелец: Claude Code)
+
+| Модуль | Отвечает за |
+|---|---|
+| `NightService` | Текущая ночь (выбор лидером в лобби), рассылка `NightInfo`, пул аномалий из `Nights.luau`, звёзды и разблокировка через DataService, контролёр, блэкаут-«замри», просьбы остановиться |
+| `GhostService` | «Забрали» → призрак (`PlayerTaken`, `GhostState`), действия призраков (`GhostAction`), возрождение (`ReviveRequest`/продукт), проигрыш, если призраки все |
+
 ### Сервер (владелец: Codex)
 
 | Модуль | Отвечает за |
@@ -53,6 +60,15 @@
 | `ResultsController` | Экран результатов рейса |
 | `AtmosphereController` | Свет, туман, звуки, эффекты эскалации (мигание, шипение, блэкаут) |
 | `ShopController` | Окно покупки VIP/Радио/Оберега |
+| `HorrorController` | Пугалки `ScareEvent`, постобработка, сердцебиение, скример (T19) |
+| `RulesController` | Листок «Правила маршрутки» на стене салона (SurfaceGui) и по кнопке; карточка «НОЧЬ 2 · Туман» в начале рейса (V2) |
+| `GhostController` | Вид призрака, кнопки «Постучать»/«Мигнуть светом», кнопка возвращения (V2) |
+
+### Клиент (владелец: Claude Code)
+
+| Модуль | Отвечает за |
+|---|---|
+| `IntroController` | Вступительная заставка при первом входе (T21) |
 
 ### Общее (владелец: оркестратор)
 
@@ -214,6 +230,28 @@ ServerStorage
 
 - **Сигнал** играет только сервер (`RouteService`, звук в автобусе — слышат все). Клиент сигнал сам не проигрывает.
 - Всё остальное (двигатель, двери, радио, шёпот, скример, эмбиент) — клиент, `AtmosphereController`.
+
+## V2: контракты ночей
+
+- `src/shared/Nights.luau` — данные ночей (владелец оркестратор). `NightService` берёт отсюда аномалии/шанс/события.
+- **Выбор ночи:** первый нажавший «Готов» — лидер рейса, его `NightSelect(n)` принимается, если `n ≤ UnlockedNight` лидера.
+  `RoundState.data.Night` — выбранная ночь (в Lobby/Countdown).
+- **Профиль (DataService, CX):** новые поля `UnlockedNight: number` (по умолчанию 1), `BestStars: {[string]: number}`
+  (ключ — номер ночи строкой). API: `GetUnlockedNight(player)`, `RecordNight(player, night, stars)` (сам разблокирует
+  следующую и выдаёт бейджи из `Config.BADGES`; 0 — не выдавать).
+- **`RunEnded.summary`** дополняется: `Night: number, Stars: number, Taken: number`.
+- **`InspectResult` билета** дополняется полем `Coin: string` (ключ Strings: `coin.tenge_100`, `coin.kopeck_1961`, `coin.blank`).
+- **Призраки:** персонаж призрака остаётся в салоне, но полупрозрачный и без коллизий (сервер), инструменты кондуктора
+  ему недоступны (сервер проверяет). `GhostAction("Knock", passengerId)` — стук в окно рядом с пассажиром (видят живые,
+  через `ScareEvent WindowKnock` по месту), `GhostAction("Flicker")` — мигание света; кулдауны в Config.
+- **Безопасные (Safe):** `EjectPassenger` на Safe → штраф `SAFE_EJECT_PENALTY`, `Notify notify.safe_ejected`, эффект `LightsFlicker`.
+- **Особые (Special):** `Standing` — если сервер получил `InspectPassenger(id, "Flashlight")` от игрока по стоящему →
+  `PlayerTaken(reason="flashlight_standing")`. `StopRequest` — пассажир с `AsksToStop` просит остановить (Notify
+  `notify.stop_request`); если водитель остановился вне зоны остановки, пока просьба активна → урон `STOP_REQUEST_DAMAGE`
+  (на автопилоте не бывает).
+- Новые ключи Notify: `notify.safe_ejected` {penalty}, `notify.stop_request`, `notify.controller_boarded`,
+  `notify.controller_clean` {bonus}, `notify.controller_found` {count}, `notify.player_taken` {player},
+  `notify.player_revived` {player}, `notify.freeze` (свет погас — замри!).
 
 ## Пассажиры
 

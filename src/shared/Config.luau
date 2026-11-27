@@ -83,6 +83,21 @@ local Config = {
 	SCARES_PER_LEG_MAX = 2,
 	SCARE_EXTRA_PER_ANOMALY = 1, -- +событие за каждую аномалию в салоне
 
+	-- ===== V2: ночи, контролёр, призраки =====
+	NIGHTS_COUNT = 5,
+	SAFE_EJECT_PENALTY = 40, -- высадил «своего» (Safe): штраф тенге + проклятие (мигание света)
+	CONTROLLER_CHECK_TIME = 10, -- сек после посадки контролёра до проверки салона
+	CONTROLLER_PENALTY_PER_ANOMALY = 25, -- урон автобусу за каждую аномалию при проверке
+	CONTROLLER_CLEAN_BONUS = 50, -- тенге каждому, если салон чистый
+	STOP_REQUEST_DAMAGE = 25, -- остановился между остановками по просьбе «пассажира»
+	BLACKOUT_FREEZE_TIME = 5, -- сек «не двигайся» в блэкауте (с 4-й ночи)
+	BLACKOUT_MOVE_TOLERANCE = 2.5, -- studs: сдвинулся больше — забирают
+	GHOST_KNOCK_COOLDOWN = 8,
+	GHOST_FLICKER_COOLDOWN = 12,
+	REVIVE_FREE_PER_NIGHT = 1, -- бесплатных возрождений на команду за рейс
+	PRODUCT_REVIVE = 0, -- Developer Product «Вернуться в салон»
+	BADGES = { Night1 = 0, Night2 = 0, Night3 = 0, Night4 = 0, Night5 = 0, PerfectNight = 0 }, -- ID бейджей
+
 	-- DataStore
 	DATASTORE_NAME = "PlayerData_v1",
 }
