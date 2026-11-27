@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local ClientSettings = require(script.Parent.Parent.Parent.ClientSettings)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -137,7 +138,7 @@ function Flashlight.new()
 
 	local function render(character: Model?)
 		updateBeam(character)
-		local fade = 0.6 + 0.12 * math.sin(os.clock() * 18)
+		local fade = if ClientSettings.get().ReducedEffects then 0.6 else 0.6 + 0.12 * math.sin(os.clock() * 18)
 		for part, original in originalTransparency do
 			setTransparency(part, math.max(original, fade))
 		end

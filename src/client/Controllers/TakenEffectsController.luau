@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
+local ClientSettings = require(script.Parent.Parent.ClientSettings)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
@@ -32,7 +33,7 @@ function Controller:Start()
 		if not player or not character then return end
 		local id = player:GetAttribute("EquippedTakenEffect")
 		local item = if type(id) == "string" then Cosmetics.find("TakenEffect", id) else nil
-		local effect = if item then item.Id else Cosmetics.Default.TakenEffect
+		local effect = if item and not ClientSettings.get().ReducedEffects then item.Id else Cosmetics.Default.TakenEffect
 		local visual = Instance.new("Folder")
 		visual.Parent = effects
 		local pose = character:GetPivot()

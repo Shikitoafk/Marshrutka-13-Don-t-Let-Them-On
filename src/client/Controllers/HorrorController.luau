@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
+local ClientSettings = require(script.Parent.Parent.ClientSettings)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -244,6 +245,7 @@ function HorrorController:Start()
 	stage.Parent = Workspace
 	local heartbeat = sound(Config.SOUNDS.Heartbeat, SoundService, 0.32, true)
 	local music = sound(Config.SOUNDS.Music, SoundService, 0.14, true)
+	if music then music.Name = "TripMusic" end
 	local scream = sound(Config.SOUNDS.Jumpscare, SoundService, 0.66, false)
 	local effects: { [string]: Effect } = {}
 	local round = "Lobby"
@@ -279,6 +281,7 @@ function HorrorController:Start()
 	end
 
 	local function shake(duration: number, amount: number)
+		if ClientSettings.get().ReducedEffects then return end
 		shakeStarted = os.clock()
 		shakeUntil = shakeStarted + duration
 		shakeAmount = amount
@@ -296,15 +299,17 @@ function HorrorController:Start()
 		if jumpPlayed then return end
 		jumpPlayed = true
 		jumpUntil = os.clock() + JUMPSCARE_TIME
-		jumpscare.Visible = true
-		if scream then scream:Play() end
+		if not ClientSettings.get().ReducedEffects then
+			jumpscare.Visible = true
+			if scream then scream:Play() end
+		end
 	end
 
 	local function applyRound(state: string)
 		if round == state then return end
 		round = state
 		local running = state == "Running"
-		correction.Enabled, bloom.Enabled = running, running
+		correction.Enabled, bloom.Enabled = running, running and not ClientSettings.get().ReducedEffects
 		if music then
 			if running then music:Play() else music:Stop() end
 		end
@@ -380,7 +385,8 @@ function HorrorController:Start()
 			keep(name, 1, function(age)
 				roof.CFrame = root.CFrame * CFrame.new(0, size.Y * 0.9, 0)
 				for _, lamp in lamps do
-					lamp.proxy.CFrame = lamp.source.CFrame * CFrame.Angles(0, 0, math.sin(age * 20) * (1 - age) * 0.35)
+					local tilt = if ClientSettings.get().ReducedEffects then 0 else math.sin(age * 20) * (1 - age) * 0.35
+					lamp.proxy.CFrame = lamp.source.CFrame * CFrame.Angles(0, 0, tilt)
 				end
 				return busPresent()
 			end, function()
@@ -464,9 +470,10 @@ function HorrorController:Start()
 		for name, effect in effects do
 			if not effect.update(now) then clear(name) end
 		end
-		local activeShake = now < shakeUntil
+		local reduced = ClientSettings.get().ReducedEffects
+		local activeShake = not reduced and now < shakeUntil
 		local intensity = if activeShake then (shakeUntil - now) / (shakeUntil - shakeStarted) * shakeAmount else 0
-		local pulse = if health <= LOW_HEALTH then 0.17 * (1 + math.sin(now * 7)) else 0
+		local pulse = if not reduced and health <= LOW_HEALTH then 0.17 * (1 + math.sin(now * 7)) else 0
 		for _, edge in edges do
 			edge.Visible = true
 			edge.BackgroundTransparency = math.clamp(0.62 - pulse - intensity * 0.25, 0.12, 1)
@@ -477,6 +484,16 @@ function HorrorController:Start()
 			shakenCamera = camera
 			appliedCamera = originalCamera * CFrame.Angles(math.noise(now * 29) * intensity * 0.055, math.noise(15, now * 29) * intensity * 0.043, 0)
 			camera.CFrame = appliedCamera
+		end
+	end)
+	ClientSettings.Changed:Connect(function()
+		local reduced = ClientSettings.get().ReducedEffects
+		bloom.Enabled = round == "Running" and not reduced
+		if reduced then
+			shakeUntil = 0
+			restoreCamera()
+			jumpscare.Visible = false
+			if scream then scream:Stop() end
 		end
 	end)
 

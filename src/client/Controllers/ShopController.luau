@@ -50,6 +50,7 @@ local function label(parent: Instance, text: string, position: UDim2, size: UDim
 	gui.TextColor3 = TEXT
 	gui.TextXAlignment = Enum.TextXAlignment.Left
 	gui.TextScaled = true
+	gui.TextWrapped = true
 	gui.Font = Enum.Font.GothamMedium
 	limitText(gui, minSize, maxSize)
 	gui.Parent = parent
@@ -401,7 +402,7 @@ function ShopController:Start()
 		local action = button(row, "", UDim2.fromScale(0.97, 0.5), UDim2.fromScale(0.34, 0.9))
 		action.Name = if offer.attribute then offer.attribute else "Amulet"
 		action.AnchorPoint = Vector2.new(1, 0.5)
-		clampSize(action, Vector2.new(0, 42), Vector2.new(math.huge, 56))
+		clampSize(action, Vector2.new(0, 44), Vector2.new(math.huge, 56))
 		actions[offer] = action
 		action.Activated:Connect(function()
 			activate(offer)

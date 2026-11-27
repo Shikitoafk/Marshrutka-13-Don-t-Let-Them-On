@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local ClientSettings = require(script.Parent.Parent.ClientSettings)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -410,8 +411,9 @@ function DriverController:Start()
 		elseif (input == gesture and not pointerThrottle[input])
 			or (gesture.UserInputType == Enum.UserInputType.MouseButton2 and input.UserInputType == Enum.UserInputType.MouseMovement)
 		then
-			yaw = math.clamp(yaw - input.Delta.X * 0.22, -MAX_YAW, MAX_YAW)
-			pitch = math.clamp(pitch - input.Delta.Y * 0.22, -MAX_PITCH, MAX_PITCH)
+			local sensitivity = 0.22 * ClientSettings.get().DriverSensitivity
+			yaw = math.clamp(yaw - input.Delta.X * sensitivity, -MAX_YAW, MAX_YAW)
+			pitch = math.clamp(pitch - input.Delta.Y * sensitivity, -MAX_PITCH, MAX_PITCH)
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input: InputObject)

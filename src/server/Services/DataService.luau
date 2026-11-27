@@ -11,6 +11,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Nights = require(Shared:WaitForChild("Nights"))
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AUTOSAVE_INTERVAL = 2 * 60
@@ -29,6 +30,7 @@ export type Profile = {
 	BestStars: { [string]: number },
 	OwnedCosmetics: { [string]: boolean },
 	Equipped: { [Cosmetics.Category]: string },
+	Settings: PlayerSettings.Values,
 }
 
 type Session = {
@@ -113,6 +115,7 @@ local function readProfile(raw: any): Profile
 		BestStars = bestStars,
 		OwnedCosmetics = owned,
 		Equipped = equipped,
+		Settings = PlayerSettings.normalize(data.Settings) or table.clone(PlayerSettings.Default),
 	}
 end
 
@@ -125,6 +128,7 @@ local function copyProfile(profile: Profile): Profile
 		BestStars = table.clone(profile.BestStars),
 		OwnedCosmetics = table.clone(profile.OwnedCosmetics),
 		Equipped = table.clone(profile.Equipped),
+		Settings = table.clone(profile.Settings),
 	}
 end
 
@@ -300,6 +304,7 @@ local function saveSession(session: Session, final: boolean)
 		record.BestStars = snapshot.BestStars
 		record.OwnedCosmetics = snapshot.OwnedCosmetics
 		record.Equipped = snapshot.Equipped
+		record.Settings = snapshot.Settings
 		record.TutorialOffered = tutorialOffered
 		metadata.SessionId = if final then nil else session.id
 		metadata.SessionExpiresAt = if final then nil else os.time() + LEASE_DURATION
@@ -479,6 +484,23 @@ function DataService:Init(services: { [string]: any })
 			cosmeticBusy[player] = nil
 			if not ok then return false, "shop.unavailable" end
 			return purchased, status
+		end
+	end
+	local settingsAvailable, settingsRemote = pcall(Remotes.Function, "UpdateSettings")
+	if settingsAvailable then
+		local nextUpdate: { [Player]: number } = {}
+		setmetatable(nextUpdate, { __mode = "k" })
+		settingsRemote.OnServerInvoke = function(player: Player, raw: unknown): boolean
+			local normalized = PlayerSettings.normalize(raw)
+			local now = os.clock()
+			if not normalized or now < (nextUpdate[player] or 0) then return false end
+			nextUpdate[player] = now + 0.4
+			local session = sessions[player]
+			if not session or session.closing or session.expiresAt <= os.time() then return false end
+			local profile = session.profile
+			if not profile then return false end
+			profile.Settings = normalized
+			return true
 		end
 	end
 end
