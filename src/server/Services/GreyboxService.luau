@@ -186,9 +186,9 @@ end
 -- Ночной город вокруг дороги (T20). Только декор: Anchored, без запросов и касаний, без теней (телефоны).
 local CITY_SEED = 1313 -- один и тот же город при каждом запуске
 local LAMP_STEP = 120 -- studs между фонарными столбами
-local STOP_LIGHTS_MAX = 16 -- горящие фонари у остановок (по 1–2 на остановку)
-local RANDOM_LIGHTS_MAX = 4 -- плюс горящие где-то на перегоне; остальные столбы тёмные
+local RANDOM_LIGHTS_MAX = 4 -- горящие где-то на перегоне; плюс у каждой остановки свой фонарь у навеса; остальные столбы тёмные
 local LIGHTS_LIMIT = 25 -- всего источников света на карте вместе с салоном (телефоны)
+local SIGN_OFFSET = 10.5 -- табличка с названием над центром тротуара: её низ выше крыши навеса, иначе крыша и столбы режут надпись
 local FLICKER_LIGHTS = 4 -- сколько горящих фонарей мигает
 local HOUSE_DARK = { Color3.fromRGB(28, 28, 32), Color3.fromRGB(36, 34, 33), Color3.fromRGB(24, 27, 30), Color3.fromRGB(40, 38, 42) }
 local WINDOW_LIT = { Color3.fromRGB(255, 200, 110), Color3.fromRGB(150, 190, 255), Color3.fromRGB(255, 170, 90) }
@@ -280,32 +280,36 @@ local function buildCity(map: Instance, points: { Vector3 }, stopFrames: { CFram
 		end
 	end
 
-	-- Фонари слева: столб + кронштейн + плафон. Горят у остановок и изредка на перегоне, часть мигает.
-	local stopLit, randomLit, flickering = 0, 0, 0
+	-- Фонарь: столб + кронштейн + плафон над краем дороги; side = -1 слева, 1 справа (сторона остановок).
+	local function lamp(frame: CFrame, side: number): BasePart
+		decor(city, "LampPost", Vector3.new(0.5, 14, 0.5), frame * CFrame.new(side * 12, ground + 7, 0), METAL, true)
+		decor(city, "LampArm", Vector3.new(4, 0.3, 0.3), frame * CFrame.new(side * 10, ground + 13.8, 0), METAL)
+		return decor(city, "LampHead", Vector3.new(1.6, 0.5, 0.9), frame * CFrame.new(side * 8.2, ground + 13.5, 0), METAL)
+	end
+	local flickering = 0
+	local function lightUp(head: BasePart)
+		head.Color = SODIUM
+		head.Material = Enum.Material.Neon
+		local light = Instance.new("PointLight")
+		light.Color = SODIUM
+		light.Range = 40
+		light.Brightness = 1.2
+		light.Shadows = false
+		light.Parent = head
+		if flickering < FLICKER_LIGHTS and rng:NextNumber() < 0.3 then
+			flickering += 1
+			flicker(light, head, rng)
+		end
+	end
+
+	-- Фонари слева через LAMP_STEP: почти все тёмные, изредка горят на перегоне. У остановок светит свой фонарь у навеса.
+	local randomLit = 0
 	for d = 0, total, LAMP_STEP do
 		local frame = roadFrame(d)
-		decor(city, "LampPost", Vector3.new(0.5, 14, 0.5), frame * CFrame.new(-12, ground + 7, 0), METAL, true)
-		decor(city, "LampArm", Vector3.new(4, 0.3, 0.3), frame * CFrame.new(-10, ground + 13.8, 0), METAL)
-		local near = nearStop(frame, 80)
-		local lit = (near and stopLit < STOP_LIGHTS_MAX) or (not near and randomLit < RANDOM_LIGHTS_MAX and rng:NextNumber() < 0.1)
-		local head = decor(city, "LampHead", Vector3.new(1.6, 0.5, 0.9), frame * CFrame.new(-8.2, ground + 13.5, 0), if lit then SODIUM else METAL)
-		if lit then
-			if near then
-				stopLit += 1
-			else
-				randomLit += 1
-			end
-			head.Material = Enum.Material.Neon
-			local light = Instance.new("PointLight")
-			light.Color = SODIUM
-			light.Range = 40
-			light.Brightness = 1.2
-			light.Shadows = false
-			light.Parent = head
-			if flickering < FLICKER_LIGHTS and rng:NextNumber() < 0.3 then
-				flickering += 1
-				flicker(light, head, rng)
-			end
+		local head = lamp(frame, -1)
+		if not nearStop(frame, 80) and randomLit < RANDOM_LIGHTS_MAX and rng:NextNumber() < 0.1 then
+			randomLit += 1
+			lightUp(head)
 		end
 	end
 
@@ -319,8 +323,10 @@ local function buildCity(map: Instance, points: { Vector3 }, stopFrames: { CFram
 			decor(city, "ShelterPost", Vector3.new(0.3, 7, 0.3), frame * CFrame.new(13, walk + 3.5, z), METAL)
 		end
 		decor(city, "Bench", Vector3.new(1.6, 0.4, 7), frame * CFrame.new(18.2, walk + 1.6, 0), WOOD, true)
-		decor(city, "SignPost", Vector3.new(0.3, 7, 0.3), frame * CFrame.new(11.5, walk + 3.5, 8), METAL)
-		decor(city, "SignPlate", Vector3.new(0.2, 2, 2), frame * CFrame.new(11.5, walk + 6.5, 8), SIGN)
+		-- Столб держит табличку (BillboardGui в Stops.Spawn, высота 4) за правый край, доходит ровно до её низа.
+		local signBottom = (GROUND_TOP + 0.3 - ROAD_TOP) + SIGN_OFFSET - 2 -- центр Spawn + сдвиг таблички − половина её высоты
+		decor(city, "SignPost", Vector3.new(0.3, signBottom - walk, 0.3), frame * CFrame.new(ROAD_WIDTH / 2 + 4, (walk + signBottom) / 2, 8), METAL)
+		lightUp(lamp(frame * CFrame.new(0, 0, -9), 1)) -- у переднего края остановки, светит на навес и посадку
 
 		if string.find(name, "Кладбище") then
 			for _, x in { 28, 60 } do
@@ -403,7 +409,7 @@ function GreyboxService:Init(_services: { [string]: any })
 		local spawn = make("Part", zone, "Spawn", Vector3.new(6, 0.6, Config.STOP_ZONE_LENGTH), cf * CFrame.new(ROAD_WIDTH / 2 + 4, GROUND_TOP + 0.3 - ROAD_TOP, 0), SIDEWALK)
 		local sign = Instance.new("BillboardGui")
 		sign.Size = UDim2.fromScale(16, 4) -- у BillboardGui Scale = studs
-		sign.StudsOffset = Vector3.new(0, 7, 0)
+		sign.StudsOffset = Vector3.new(0, SIGN_OFFSET, 0)
 		sign.MaxDistance = 400
 		sign.LightInfluence = 0
 		local label = Instance.new("TextLabel")
