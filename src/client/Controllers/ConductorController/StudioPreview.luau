@@ -57,10 +57,13 @@ function StudioPreview.create(origin: CFrame): Model
 	return bus
 end
 
-function StudioPreview.ticket(passengerId: string): { Route: string, Date: string }
+function StudioPreview.ticket(passengerId: string): { Route: string, Date: string, Coin: string }
 	return {
 		Route = Config.ROUTE_NUMBER,
 		Date = if passengerId == "preview-red" then "13.11.1986" else os.date("!%d.%m.%Y"),
+		Coin = if passengerId == "preview-yellow" then "coin.blank"
+			elseif passengerId == "preview-green" then "coin.kopeck_1961"
+			else "coin.tenge_100",
 	}
 end
 
