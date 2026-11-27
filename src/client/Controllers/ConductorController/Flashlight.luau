@@ -9,9 +9,19 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local Flashlight = {}
 
 local RENDER_STEP = "MarshrutkaFlashlight"
-local BEAM_ANGLE = 54
+local BEAM_ANGLE = 28
 local BEAM_RANGE = Config.INSPECT_RANGE * 2
 local CONE_EDGE = math.cos(math.rad(BEAM_ANGLE / 2))
+local BEAM_SLOPE = math.tan(math.rad(BEAM_ANGLE / 2))
+type Fadeable = BasePart | Decal
+
+local function setTransparency(part: Fadeable, value: number)
+	if part:IsA("BasePart") then
+		part.LocalTransparencyModifier = value
+	elseif part:IsA("Decal") then
+		part.LocalTransparencyModifier = value
+	end
+end
 
 local function effectPart(name: string): Part
 	local part = Instance.new("Part")
@@ -28,7 +38,7 @@ local function makeEye(): Part
 	local eye = effectPart("FlashlightEye")
 	eye.Shape = Enum.PartType.Ball
 	eye.Material = Enum.Material.Neon
-	eye.Color = Color3.fromRGB(255, 216, 118)
+	eye.Color = Color3.fromRGB(255, 22, 32)
 	return eye
 end
 
@@ -37,30 +47,52 @@ function Flashlight.new()
 	emitter.Size = Vector3.one * 0.15
 	emitter.Transparency = 1
 
+	local startAttachment = Instance.new("Attachment")
+	startAttachment.Parent = emitter
+	local endAttachment = Instance.new("Attachment")
+	endAttachment.Parent = emitter
+	local beam = Instance.new("Beam")
+	beam.Attachment0 = startAttachment
+	beam.Attachment1 = endAttachment
+	beam.FaceCamera = true
+	beam.Width0 = 0.18
+	beam.Segments = 12
+	beam.Color = ColorSequence.new(Color3.fromRGB(255, 239, 189))
+	beam.LightEmission = 1
+	beam.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(0.6, 0.83),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	beam.Parent = emitter
+
 	local light = Instance.new("SpotLight")
 	light.Face = Enum.NormalId.Front
 	light.Angle = BEAM_ANGLE
 	light.Range = BEAM_RANGE
-	light.Brightness = 2.8
+	light.Brightness = 5
 	light.Color = Color3.fromRGB(255, 244, 215)
 	light.Shadows = true
 	light.Parent = emitter
 
-	local originalShadows: { [BasePart]: boolean } = {}
+	local originalTransparency: { [Fadeable]: number } = {}
+	local ghostParts: { [Fadeable]: boolean } = {}
+	local litEyes: { [BasePart]: boolean } = {}
 	local glowingEyes: { [BasePart]: { Part } } = {}
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local isOn = false
+	local view: CFrame? = nil
 
-	local function clearUnused(shadows: { [BasePart]: boolean }, eyes: { [BasePart]: boolean })
-		for part, original in originalShadows do
-			if not shadows[part] then
-				part.CastShadow = original
-				originalShadows[part] = nil
+	local function clearUnused()
+		for part, original in originalTransparency do
+			if not ghostParts[part] then
+				setTransparency(part, original)
+				originalTransparency[part] = nil
 			end
 		end
 		for head, pair in glowingEyes do
-			if not eyes[head] then
+			if not litEyes[head] then
 				for _, eye in pair do
 					eye:Destroy()
 				end
@@ -69,42 +101,82 @@ function Flashlight.new()
 		end
 	end
 
-	local function followCamera()
+	local function updateBeam(character: Model?)
 		local camera = Workspace.CurrentCamera
-		light.Enabled = camera ~= nil
-		if camera then
-			emitter.CFrame = camera.CFrame
+		local head = if character then character:FindFirstChild("Head") else nil
+		if not camera or not head or not head:IsA("BasePart") then
+			view = nil
+			light.Enabled = false
+			beam.Enabled = false
+			return
+		end
+
+		rayParams.FilterDescendantsInstances = if character then { character } else {}
+		local cameraPose = camera.CFrame
+		local aimRay = cameraPose.LookVector * (BEAM_RANGE + (cameraPose.Position - head.Position).Magnitude)
+		local aimHit = Workspace:Raycast(cameraPose.Position, aimRay, rayParams)
+		local aim = if aimHit then aimHit.Position else cameraPose.Position + aimRay
+		local origin = head.CFrame:PointToWorldSpace(Vector3.new(head.Size.X * 0.65, 0, 0))
+		local offset = aim - origin
+		local direction = if offset.Magnitude > 0.1 and offset:Dot(cameraPose.LookVector) > 0
+			then offset.Unit
+			else cameraPose.LookVector
+		local pose = CFrame.lookAlong(origin, direction)
+		view = pose
+		emitter.CFrame = pose
+		local obstruction = Workspace:Raycast(origin, direction * BEAM_RANGE, rayParams)
+		local length = if obstruction then obstruction.Distance else BEAM_RANGE
+		endAttachment.Position = Vector3.new(0, 0, -length)
+		beam.Width1 = math.max(beam.Width0, length * 2 * BEAM_SLOPE)
+		light.Enabled = true
+		beam.Enabled = true
+	end
+
+	local function render(character: Model?)
+		updateBeam(character)
+		local fade = 0.6 + 0.12 * math.sin(os.clock() * 18)
+		for part, original in originalTransparency do
+			setTransparency(part, math.max(original, fade))
+		end
+		for head, pair in glowingEyes do
+			for index, eye in pair do
+				local side = if index == 1 then -1 else 1
+				eye.CFrame = head.CFrame * CFrame.new(side * head.Size.X * 0.18, head.Size.Y * 0.1, -head.Size.Z * 0.54)
+			end
 		end
 	end
 
-	local function setEnabled(enabled: boolean)
+	local function setEnabled(enabled: boolean, player: Player)
 		if enabled == isOn then
 			return
 		end
 		isOn = enabled
 		if enabled then
-			followCamera()
 			emitter.Parent = Workspace
-			RunService:BindToRenderStep(RENDER_STEP, Enum.RenderPriority.Camera.Value + 1, followCamera)
+			render(player.Character)
+			RunService:BindToRenderStep(RENDER_STEP, Enum.RenderPriority.Camera.Value + 1, function()
+				render(player.Character)
+			end)
 		else
 			RunService:UnbindFromRenderStep(RENDER_STEP)
+			view = nil
 			emitter.Parent = nil
-			clearUnused({}, {})
+			table.clear(ghostParts)
+			table.clear(litEyes)
+			clearUnused()
 		end
 	end
 
-	local function update(passengers: { Model }, character: Model?): { Model }
+	local function update(passengers: { Model }): { Model }
 		local illuminated: { Model } = {}
-		local shadows: { [BasePart]: boolean } = {}
-		local eyes: { [BasePart]: boolean } = {}
-		local camera = Workspace.CurrentCamera
-		if not isOn or not camera then
-			clearUnused(shadows, eyes)
+		table.clear(ghostParts)
+		table.clear(litEyes)
+		local pose = view
+		if not pose then
+			clearUnused()
 			return illuminated
 		end
 
-		rayParams.FilterDescendantsInstances = if character then { character } else {}
-		local view = camera.CFrame
 		for _, passenger in passengers do
 			local head = passenger:FindFirstChild("Head")
 			local face = if head and head:IsA("BasePart") then head else nil
@@ -112,12 +184,12 @@ function Flashlight.new()
 			if not target then
 				continue
 			end
-			local direction = target.Position - view.Position
+			local direction = target.Position - pose.Position
 			local distance = direction.Magnitude
-			if distance <= 0 or distance > BEAM_RANGE or view.LookVector:Dot(direction.Unit) < CONE_EDGE then
+			if distance <= 0 or distance > BEAM_RANGE or pose.LookVector:Dot(direction.Unit) < CONE_EDGE then
 				continue
 			end
-			local hit = Workspace:Raycast(view.Position, direction, rayParams)
+			local hit = Workspace:Raycast(pose.Position, direction, rayParams)
 			if hit and not hit.Instance:IsDescendantOf(passenger) then
 				continue
 			end
@@ -125,31 +197,28 @@ function Flashlight.new()
 			table.insert(illuminated, passenger)
 			if passenger:GetAttribute("NoShadow") == true then
 				for _, part in passenger:GetDescendants() do
-					if part:IsA("BasePart") then
-						shadows[part] = true
-						if originalShadows[part] == nil then
-							originalShadows[part] = part.CastShadow
-							part.CastShadow = false
+					if part:IsA("BasePart") or part:IsA("Decal") then
+						ghostParts[part] = true
+						if originalTransparency[part] == nil then
+							originalTransparency[part] = part.LocalTransparencyModifier
 						end
 					end
 				end
 			end
 			if face and passenger:GetAttribute("GlowEyes") == true then
-				eyes[face] = true
-				local pair = glowingEyes[face]
-				if not pair then
-					pair = { makeEye(), makeEye() }
+				litEyes[face] = true
+				if not glowingEyes[face] then
+					local pair = { makeEye(), makeEye() }
+					for _, eye in pair do
+						eye.Size = Vector3.one * (face.Size.Y * 0.19)
+						eye.CFrame = face.CFrame
+						eye.Parent = emitter
+					end
 					glowingEyes[face] = pair
-				end
-				for index, eye in pair do
-					local side = if index == 1 then -1 else 1
-					eye.Size = Vector3.one * (face.Size.Y * 0.14)
-					eye.CFrame = face.CFrame * CFrame.new(side * face.Size.X * 0.18, face.Size.Y * 0.1, -face.Size.Z * 0.51)
-					eye.Parent = emitter
 				end
 			end
 		end
-		clearUnused(shadows, eyes)
+		clearUnused()
 		return illuminated
 	end
 
