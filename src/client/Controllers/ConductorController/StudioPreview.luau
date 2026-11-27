@@ -48,8 +48,9 @@ function StudioPreview.create(origin: CFrame): Model
 	addPassenger("preview-blue", -2.4, -6, Color3.fromRGB(54, 107, 180))
 	local hidden = addPassenger("preview-red", 2.4, -6, Color3.fromRGB(174, 55, 61))
 	hidden:SetAttribute("HiddenInMirror", true)
-	local glowing = addPassenger("preview-green", 0, -8.3, Color3.fromRGB(54, 133, 83))
-	glowing:SetAttribute("NoShadow", true)
+	local ghost = addPassenger("preview-green", 0, -8.3, Color3.fromRGB(54, 133, 83))
+	ghost:SetAttribute("NoShadow", true)
+	local glowing = addPassenger("preview-yellow", 2.4, -9, Color3.fromRGB(180, 131, 61))
 	glowing:SetAttribute("GlowEyes", true)
 
 	bus.Parent = Workspace

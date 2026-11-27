@@ -261,7 +261,7 @@ function ConductorController:Start()
 
 	local function setLight(enabled: boolean)
 		lightOn = enabled and battery > 0
-		flashlight.setEnabled(lightOn)
+		flashlight.setEnabled(lightOn, player)
 		table.clear(seenByFlashlight)
 		lightButton.BackgroundColor3 = if lightOn then AMBER else BUTTON
 		lightButton.TextColor3 = if lightOn then PANEL else TEXT
@@ -407,7 +407,7 @@ function ConductorController:Start()
 		local now = os.clock()
 		sendQueuedTicket(now)
 		if lightOn then
-			for _, model in flashlight.update(models, player.Character) do
+			for _, model in flashlight.update(models) do
 				local target = targets[model]
 				if not seenByFlashlight[model] and now >= nextInspectAt and canReach(target) then
 					seenByFlashlight[model] = true
