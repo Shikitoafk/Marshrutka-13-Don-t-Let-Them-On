@@ -140,9 +140,12 @@ function RoundService:Start()
 				notify:FireClient(player, "notify.trip_finished", "Good")
 			end
 		end
-		local anomalies = registry.AnomalyService
+		local anomalies, ghosts = registry.AnomalyService, registry.GhostService
 		if anomalies then
-			anomalies:FinishRun(won) -- RunEnded с итогами, бонус и статистика
+			anomalies:FinishRun(won) -- RunEnded с итогами (Taken — из GhostService), бонус и статистика
+		end
+		if ghosts then
+			ghosts:FinishRun()
 		end
 		task.delay(Config.RESULTS_SCREEN_TIME, function()
 			roles:ClearRoles()
@@ -220,9 +223,12 @@ function RoundService:Start()
 		roles:AssignRoles(riders) -- сначала каждому RoleAssigned,
 		state = "Running"
 		broadcast() -- потом RoundState("Running"),
-		local nights = registry.NightService
+		local nights, ghosts = registry.NightService, registry.GhostService
 		if nights then
 			nights:StartRun(riders) -- потом NightInfo
+		end
+		if ghosts then
+			ghosts:StartRun()
 		end
 		route:StartRun()
 		checkRiders() -- сразу сажаем всех в автобус

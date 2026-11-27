@@ -223,6 +223,11 @@ function AnomalyService:Damage(amount: number)
 	damageNow(amount)
 end
 
+-- Мигнуть светом у всех: проклятие за высаженную «свою» (V01), призрак мигает (V04).
+function AnomalyService:Flicker()
+	Remotes.Event("AnomalyEscalated"):FireAllClients(hits, "LightsFlicker")
+end
+
 -- Тенге всем в рейсе и в итоги (бонус контролёра за чистый салон, V03).
 function AnomalyService:Reward(amount: number)
 	earnedPlus += amount
@@ -420,9 +425,12 @@ function AnomalyService:Start()
 		local effects = Config.ESCALATION_EFFECTS
 		local effect = effects[math.min(hits, #effects)]
 		escalated:FireAllClients(hits, effect)
-		local scares = registry.ScareEventService
+		local scares, ghosts = registry.ScareEventService, registry.GhostService
 		if scares then
 			scares:OnEscalation(effect) -- Blackout → силуэт на заднем сиденье
+		end
+		if ghosts and effect == "Blackout" then
+			ghosts:OnBlackout() -- с 4-й ночи: «замри»
 		end
 		log(`урон: прочность {health}`)
 		if health <= 0 then
@@ -454,9 +462,9 @@ function AnomalyService:Start()
 
 	-- Кондуктор рядом с пассажиром в салоне? Возвращает модель или nil.
 	local function conductorNear(player: Player, id: string): Model?
-		local roles = registry.RoleService
-		if not table.find(riders(), player) or (roles and roles:GetDriver() == player) then
-			return nil
+		local roles, ghosts = registry.RoleService, registry.GhostService
+		if not table.find(riders(), player) or (roles and roles:GetDriver() == player) or (ghosts and ghosts:IsGhost(player)) then
+			return nil -- призраку инструменты недоступны (V04)
 		end
 		local model = passengers:GetModel(id)
 		local character = player.Character
@@ -537,7 +545,7 @@ function AnomalyService:Start()
 			earnedMinus -= Config.SAFE_EJECT_PENALTY
 			payRiders(-Config.SAFE_EJECT_PENALTY)
 			notifyRiders("notify.safe_ejected", "Bad", { penalty = Config.SAFE_EJECT_PENALTY })
-			escalated:FireAllClients(hits, "LightsFlicker")
+			AnomalyService:Flicker()
 		elseif kind then
 			caught += 1
 			earnedPlus += Config.CATCH_REWARD
