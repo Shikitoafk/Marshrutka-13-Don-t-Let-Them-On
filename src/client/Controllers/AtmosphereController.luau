@@ -83,6 +83,7 @@ function AtmosphereController:Start()
 	blackout.Parent = Lighting
 
 	local soundIds = Config.SOUNDS
+	stopChime = makeSound("StopChime", soundIds.StopChime, SoundService, 0.5, false)
 	local spatialSounds = {
 		{ name = "Engine", id = soundIds.Engine, volume = 0.32, looped = true },
 		{ name = "DoorOpen", id = soundIds.DoorOpen, volume = 0.6, looped = false },
@@ -95,7 +96,6 @@ function AtmosphereController:Start()
 	end
 	local whispers = makeSound("Whispers", soundIds.Whispers, SoundService, 0.53, false)
 	local scare = makeSound("Jumpscare", soundIds.Jumpscare, SoundService, 0.7, false)
-	stopChime = makeSound("StopChime", soundIds.StopChime, SoundService, 0.5, false)
 
 	local roundState: string? = nil
 	local ended = false
