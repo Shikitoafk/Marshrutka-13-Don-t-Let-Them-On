@@ -253,6 +253,7 @@ function ConductorController:Start()
 	local previewBus: Model? = nil
 	local roundState = "Lobby"
 	local role: string? = nil
+	local isGhost = false
 	local battery = Config.FLASHLIGHT_BATTERY
 	local lightOn = false
 	local tickConnection: RBXScriptConnection? = nil
@@ -482,7 +483,7 @@ function ConductorController:Start()
 	end
 
 	local function updateTools()
-		local enabled = role == "Conductor" and roundState == "Running"
+		local enabled = role == "Conductor" and roundState == "Running" and not isGhost
 		if screen.Enabled == enabled then
 			return
 		end
@@ -528,6 +529,7 @@ function ConductorController:Start()
 	local function applyRoundState(state: string)
 		if state ~= roundState and (state == "Lobby" or state == "Results") then
 			role = nil
+			isGhost = false
 			battery = Config.FLASHLIGHT_BATTERY
 			nextInspectAt = 0
 			updateLightButton()
@@ -603,6 +605,10 @@ function ConductorController:Start()
 	Remotes.Event("InspectResult").OnClientEvent:Connect(showTicket)
 	Remotes.Event("RoleAssigned").OnClientEvent:Connect(function(assignedRole: string)
 		role = assignedRole
+		updateTools()
+	end)
+	Remotes.Event("GhostState").OnClientEvent:Connect(function(ghost: boolean)
+		isGhost = ghost == true
 		updateTools()
 	end)
 	Remotes.Event("RoundState").OnClientEvent:Connect(applyRoundState)
