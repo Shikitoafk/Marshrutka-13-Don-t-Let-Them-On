@@ -12,12 +12,73 @@ local AnomalyTypes = require(Shared:WaitForChild("AnomalyTypes"))
 local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 
 local SELECT_RATE = 5 -- NightSelect в секунду на игрока: сверх — отбрасываем до проверок
+local UNIFORM = Color3.fromRGB(30, 60, 150) -- синяя форма настоящего контролёра (правило ночи 5)
+local FAKE_UNIFORM = Color3.fromRGB(38, 44, 42) -- у фальшивого: почти чёрная и без жетона
+local BADGE = Color3.fromRGB(230, 185, 60)
 
 local NightService = {}
 
 local registry: { [string]: any } = {}
 local selected = 1 -- выбранная ночь
 local ruleBreaks = 0 -- нарушения правил ночи за рейс (V02/V04 зовут BreakRule): минус ★★
+local runId = 0 -- растёт на старте и конце рейса: отложенные проверки старого рейса не срабатывают
+local running = false
+
+local function log(text: string)
+	if RunService:IsStudio() then
+		print(`[Night] {text}`)
+	end
+end
+
+local function notifyRiders(key: string, kind: string, params: { [string]: any }?)
+	local round = registry.RoundService
+	for _, player in (if round then round:GetRiders() else {}) do
+		Remotes.Event("Notify"):FireClient(player, key, kind, params)
+	end
+end
+
+-- Деталь формы, приваренная к части тела (без массы и столкновений, чтобы не мешать ходьбе и сиденью).
+local function attach(base: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.Color = color
+	part.Material = Enum.Material.SmoothPlastic
+	part.CanCollide, part.CanQuery, part.CanTouch, part.Massless = false, false, false, true
+	part.CFrame = base.CFrame * offset
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0, weld.Part1 = base, part
+	weld.Parent = part
+	part.Parent = base.Parent
+end
+
+-- Форма контролёра: одежда снята, тело в цвет формы, фуражка; у настоящего — золотой жетон на груди.
+local function uniform(model: Model, color: Color3, badge: boolean)
+	for _, item in model:GetDescendants() do
+		if item:IsA("Clothing") or item:IsA("ShirtGraphic") or item:IsA("BodyColors") then
+			item:Destroy()
+		elseif item:IsA("BasePart") and (string.find(item.Name, "Torso") or string.find(item.Name, "Arm") or string.find(item.Name, "Leg") or string.find(item.Name, "Foot")) then
+			item.Color = color
+		end
+	end
+	local head = model:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		attach(head, "Cap", Vector3.new(head.Size.X * 1.1, 0.3, head.Size.Z * 1.15), CFrame.new(0, head.Size.Y / 2 + 0.1, 0), color)
+		attach(head, "CapVisor", Vector3.new(head.Size.X * 0.9, 0.1, 0.4), CFrame.new(0, head.Size.Y / 2 - 0.02, -head.Size.Z / 2 - 0.15), Color3.new(0.05, 0.05, 0.05))
+	end
+	local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
+	if badge and torso and torso:IsA("BasePart") then
+		attach(torso, "Badge", Vector3.new(0.35, 0.4, 0.08), CFrame.new(-torso.Size.X * 0.25, torso.Size.Y * 0.2, -torso.Size.Z / 2 - 0.04), BADGE)
+	end
+end
+
+local function dressReal(model: Model)
+	uniform(model, UNIFORM, true)
+end
+
+local function dressFake(model: Model)
+	uniform(model, FAKE_UNIFORM, false)
+end
 
 -- Звёзды (Nights.luau): ★ доехали до «Конечной», ★★ ещё и без ошибок, ★★★ ещё и ни одна аномалия не нанесла урон.
 function NightService.Stars(won: boolean, mistakes: number, anomalyHits: number): number
@@ -77,6 +138,8 @@ end
 -- RoundService: рейс начался (после RoundState «Running») — каждому ночь и правила.
 function NightService:StartRun(riders: { Player })
 	ruleBreaks = 0
+	runId += 1
+	running = true
 	for _, player in riders do
 		sendInfo(player)
 	end
@@ -89,6 +152,8 @@ end
 
 -- AnomalyService: рейс окончен. Возвращает звёзды; хотя бы одна — записываем в профиль (откроет следующую ночь).
 function NightService:FinishRun(won: boolean, mistakes: number, anomalyHits: number, riders: { Player }): number
+	runId += 1
+	running = false
 	local stars = NightService.Stars(won, mistakes + ruleBreaks, anomalyHits)
 	local data = registry.DataService
 	if stars > 0 and data and data.RecordNight then
@@ -118,6 +183,47 @@ function NightService:Start()
 			selected = night
 			round:Broadcast()
 		end
+	end)
+
+	-- Контролёр (V03): садится на остановке ControllerAtStop, через CONTROLLER_CHECK_TIME проверяет салон.
+	-- В ночь 5 с шансом FakeControllerChance он фальшивый — аномалия FakeController, ничего не проверяет.
+	local route, passengers, anomalies = registry.RouteService, registry.PassengerService, registry.AnomalyService
+	if not (route and passengers and anomalies) then
+		warn("[NightService] Нет RouteService, PassengerService или AnomalyService — контролёра не будет")
+		return
+	end
+	local function check(id: string)
+		local run = runId
+		task.delay(Config.CONTROLLER_CHECK_TIME, function()
+			if run ~= runId or not passengers:GetModel(id) then
+				return -- рейс кончился, или контролёра уже высадили
+			end
+			local found = anomalies:CountAboard()
+			log(`контролёр проверил салон: аномалий {found}`)
+			if found > 0 then
+				for _ = 1, found do
+					anomalies:Damage(Config.CONTROLLER_PENALTY_PER_ANOMALY)
+				end
+				notifyRiders("notify.controller_found", "Bad", { count = found })
+			else
+				anomalies:Reward(Config.CONTROLLER_CLEAN_BONUS)
+				notifyRiders("notify.controller_clean", "Good", { bonus = Config.CONTROLLER_CLEAN_BONUS })
+			end
+		end)
+	end
+	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
+		local events = Nights[selected].Events
+		if not (running and phase == "Approaching" and index == events.ControllerAtStop) then
+			return
+		end
+		local fake = math.random() < (events.FakeControllerChance or 0)
+		passengers:SpawnSpecial(index, if fake then dressFake else dressReal, if fake then "FakeController" else nil, function(id: string)
+			log(if fake then "сел фальшивый контролёр" else "сел контролёр")
+			notifyRiders("notify.controller_boarded", "Info")
+			if not fake then
+				check(id)
+			end
+		end)
 	end)
 end
 

@@ -21,7 +21,9 @@ local DOOR_STEP_OUT = 2 -- studs от двери наружу: куда подх
 local SKIN = { Color3.fromRGB(234, 192, 158), Color3.fromRGB(198, 145, 105), Color3.fromRGB(141, 95, 64), Color3.fromRGB(255, 220, 190) }
 local CLOTHES = { Color3.fromRGB(60, 70, 90), Color3.fromRGB(120, 40, 40), Color3.fromRGB(70, 90, 60), Color3.fromRGB(90, 90, 90), Color3.fromRGB(150, 120, 60), Color3.fromRGB(40, 40, 45) }
 
-type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, keptExit: number?, seat: Seat? }
+-- Особый пассажир (контролёр, V03): kind — Id аномалии, которой он станет (nil — человек, на аномалию не проверяем).
+type Special = { kind: string?, onBoarded: (id: string) -> () }
+type Passenger = { id: string, model: Model, humanoid: Humanoid, exitStop: number, keptExit: number?, seat: Seat?, special: Special? }
 
 local PassengerService = {}
 
@@ -134,6 +136,15 @@ function PassengerService:Eject(id: string): boolean
 	return ejectNow(id)
 end
 
+-- Особый пассажир на остановке stop (зовите на её Approaching): садится первым, без платы за проезд,
+-- выходит на следующей (если kind — аномалия, то только когда высадят). dress одевает модель. Возвращает PassengerId.
+local spawnSpecialNow = function(_stop: number, _dress: (Model) -> (), _special: Special): string?
+	return nil
+end
+function PassengerService:SpawnSpecial(stop: number, dress: (Model) -> (), kind: string?, onBoarded: (id: string) -> ()): string?
+	return spawnSpecialNow(stop, dress, { kind = kind, onBoarded = onBoarded })
+end
+
 function PassengerService:Init(services: { [string]: any })
 	registry = services
 end
@@ -216,11 +227,11 @@ function PassengerService:Start()
 		end
 	end
 
-	local function spawnWaiter(stop: number)
+	local function spawnWaiter(stop: number, dress: ((Model) -> ())?, special: Special?): string?
 		local zone = zones[stop]
 		local spawnPart = if zone then zone:FindFirstChild("Spawn") else nil
 		if not (zone and spawnPart and spawnPart:IsA("BasePart")) then
-			return
+			return nil
 		end
 		local model = makeModel()
 		local humanoid = if model then model:FindFirstChildOfClass("Humanoid") else nil
@@ -229,7 +240,10 @@ function PassengerService:Start()
 			if model then
 				model:Destroy()
 			end
-			return
+			return nil
+		end
+		if dress then
+			dress(model)
 		end
 		local id = HttpService:GenerateGUID(false)
 		model.Name = "Passenger"
@@ -242,7 +256,13 @@ function PassengerService:Start()
 		model.Parent = zone
 		pcall(body.SetNetworkOwner, body, nil) -- ходит сервер, а не ближайший игрок
 		waiting[stop] = waiting[stop] or {}
-		table.insert(waiting[stop], { id = id, model = model, humanoid = humanoid, exitStop = math.random(stop + 1, lastStop), keptExit = nil, seat = nil })
+		local exitStop = if special then math.min(stop + 1, lastStop) else math.random(stop + 1, lastStop)
+		local p: Passenger = { id = id, model = model, humanoid = humanoid, exitStop = exitStop, keptExit = nil, seat = nil, special = special }
+		table.insert(waiting[stop], if special then 1 else #waiting[stop] + 1, p) -- особый — первым, чтобы точно хватило места
+		return id
+	end
+	spawnSpecialNow = function(stop: number, dress: (Model) -> (), special: Special): string?
+		return spawnWaiter(stop, dress, special)
 	end
 
 	local function board(p: Passenger, stop: number)
@@ -271,13 +291,22 @@ function PassengerService:Start()
 			seat:Sit(p.humanoid)
 			p.model.Parent = passengersFolder
 			onboard[p.id] = p
-			-- Аномалия сама не выходит: едет, пока её не высадят.
+			-- Аномалия сама не выходит: едет, пока её не высадят. Особый пассажир едет бесплатно, его тип задан заранее.
 			local anomalies = registry.AnomalyService
-			if anomalies and anomalies:OnBoarded(p.id, p.model) then
+			local special = p.special
+			if special then
+				if special.kind and anomalies and anomalies:OnBoarded(p.id, p.model, special.kind) then
+					PassengerService:KeepAboard(p.id)
+				end
+			elseif anomalies and anomalies:OnBoarded(p.id, p.model) then
 				PassengerService:KeepAboard(p.id)
 			end
 			passengerBoarded:FireAllClients(p.id)
-			payFare()
+			if special then
+				special.onBoarded(p.id)
+			else
+				payFare()
+			end
 			log(`Остановка {stop}: сел пассажир (выйдет на {p.exitStop})`)
 		end)
 	end

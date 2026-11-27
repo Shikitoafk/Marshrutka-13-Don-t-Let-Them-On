@@ -159,6 +159,18 @@ function AnomalyService:GetHealth(): number
 	return health
 end
 
+-- Урон автобусу с эскалацией (контролёр нашёл аномалии, V03; остановка по просьбе, V02). Настоящая функция — в :Start().
+local damageNow = function(_amount: number) end
+function AnomalyService:Damage(amount: number)
+	damageNow(amount)
+end
+
+-- Тенге всем в рейсе и в итоги (бонус контролёра за чистый салон, V03).
+function AnomalyService:Reward(amount: number)
+	earnedPlus += amount
+	payRiders(amount)
+end
+
 -- Сколько аномалий сейчас в салоне (ScareEventService: больше пугалок, когда они рядом).
 function AnomalyService:CountAboard(): number
 	local passengers = registry.PassengerService
@@ -173,9 +185,23 @@ function AnomalyService:CountAboard(): number
 end
 
 -- PassengerService зовёт при посадке. true — аномалия (сама не выйдет).
-function AnomalyService:OnBoarded(id: string, model: Model): boolean
-	earnedPlus += Config.FARE_PER_PASSENGER -- плату начисляет PassengerService, здесь только считаем для итогов
+-- forced — Id аномалии особого пассажира (фальшивый контролёр, V03): без шанса, лимита и платы за проезд.
+function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): boolean
 	tickets[id] = ticket(false)
+	if forced then
+		local kind = byId[forced]
+		if not kind then
+			return false
+		end
+		truth[id] = kind
+		boardedAt[id] = atStop
+		if kind.CueAttribute then
+			model:SetAttribute(kind.CueAttribute, true)
+		end
+		log(`сел пассажир-аномалия: {kind.Name}`)
+		return true
+	end
+	earnedPlus += Config.FARE_PER_PASSENGER -- плату начисляет PassengerService, здесь только считаем для итогов
 	local count = 0
 	for _ in truth do
 		count += 1
@@ -308,11 +334,11 @@ function AnomalyService:Start()
 		end)
 	end
 
-	local function damage()
+	local function damage(amount: number)
 		if health <= 0 then
 			return
 		end
-		health = math.max(0, health - Config.ANOMALY_DAMAGE)
+		health = math.max(0, health - amount)
 		hits += 1
 		local effects = Config.ESCALATION_EFFECTS
 		local effect = effects[math.min(hits, #effects)]
@@ -326,6 +352,7 @@ function AnomalyService:Start()
 			onBroken()
 		end
 	end
+	damageNow = damage
 
 	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
 		if phase == "Approaching" and index == 1 then
@@ -342,7 +369,7 @@ function AnomalyService:Start()
 			for id, kind in truth do
 				-- севшая на этой же остановке ещё не бьёт: у кондукторов должен быть целый перегон
 				if aboard[id] and dangerous(kind) and (boardedAt[id] or 0) < index then
-					damage()
+					damage(Config.ANOMALY_DAMAGE)
 				end
 			end
 		end
