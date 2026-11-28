@@ -31,11 +31,6 @@ local localPlayer = Players.LocalPlayer
 local playing = false
 local stopEnding: (() -> ())? = nil
 
--- shortcut: ключей ending.* в Strings пока нет (файл CX) — до них показываем запасной текст.
-local function text(key: string, fallback: string): string
-	local value = Strings.get(key)
-	return if value == key then fallback else value
-end
 
 local function play(ending: string)
 	local map = Workspace:FindFirstChild("Map")
@@ -174,14 +169,20 @@ local function play(ending: string)
 	title.TextStrokeColor3 = Color3.new(0, 0, 0)
 	title.TextTransparency = 1
 	title.TextStrokeTransparency = 1
-	title.Text = if ending == "Good"
-		then text("ending.good", "Shift over")
-		else text("ending.bad", "Route 13 never ends")
+	local key = if ending == "Good" then "ending.good" else "ending.bad"
+	title.Text = Strings.get(key .. ".title")
 	title.ZIndex = 2
 	title.Parent = screen
 	local titleLimit = Instance.new("UITextSizeConstraint")
 	titleLimit.MaxTextSize = 90
 	titleLimit.Parent = title
+	local subtitle = title:Clone()
+	subtitle.Position = UDim2.fromScale(0.5, 0.32)
+	subtitle.Size = UDim2.fromScale(0.8, 0.07)
+	subtitle.Font = Enum.Font.GothamMedium
+	subtitle.TextColor3 = Color3.fromRGB(235, 228, 214)
+	subtitle.Text = Strings.get(key .. ".sub")
+	subtitle.Parent = screen
 	screen.Parent = playerGui
 
 	-- Чужие экраны (итоги, лобби…) вынимаем, а не выключаем — владельцы сами меняют Enabled; потом возвращаем.
@@ -232,6 +233,11 @@ local function play(ending: string)
 		table.insert(tweens, t)
 		t:Play()
 	end
+	local function showText()
+		for _, label in { title, subtitle } do
+			tween(label, 0.8, { TextTransparency = 0, TextStrokeTransparency = 0.4 })
+		end
+	end
 	local follow: RBXScriptConnection? = nil
 	-- Камера каждый кадр: смотрит с места на автобус или едет вместе с ним.
 	local function track(frame: () -> CFrame)
@@ -269,7 +275,7 @@ local function play(ending: string)
 		if follow then
 			follow:Disconnect()
 		end
-		title.Visible = false
+		title.Visible, subtitle.Visible = false, false
 		copy:Destroy()
 		for _, item in hidden do
 			(item :: any).LocalTransparencyModifier = 0 -- после рейса прятать нечего
@@ -338,7 +344,7 @@ local function play(ending: string)
 		end
 		hold(2.2, "cap")
 		-- 3. «Смена окончена».
-		tween(title, 0.8, { TextTransparency = 0, TextStrokeTransparency = 0.4 })
+		showText()
 		hold(3, "title")
 	end
 
@@ -370,7 +376,7 @@ local function play(ending: string)
 		tween(neck, 3, { C0 = neckRest * CFrame.Angles(0, math.pi, 0) })
 		hold(3.4, "dark")
 		-- 3. «Маршрут 13 не заканчивается».
-		tween(title, 0.8, { TextTransparency = 0, TextStrokeTransparency = 0.4 })
+		showText()
 		hold(3, "title")
 	end
 
