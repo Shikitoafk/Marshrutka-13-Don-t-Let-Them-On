@@ -531,6 +531,9 @@ function AnomalyService:Start()
 	-- (это рисует HorrorController по ScareEvent AnomalyAttack), и только потом урон, как раньше.
 	local scareEvent = Remotes.Event("ScareEvent")
 	local function attack(id: string)
+		if not (runActive and truth[id]) then
+			return -- предыдущая в очереди уже добила автобус: после конца рейса сцен не показываем (найдено в B12)
+		end
 		local ghosts = registry.GhostService
 		local living: { Player } = {}
 		for _, player in riders() do
