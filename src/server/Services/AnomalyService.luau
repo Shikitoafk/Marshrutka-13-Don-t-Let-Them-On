@@ -191,11 +191,22 @@ local function grandmaLook(model: Model)
 	end
 end
 
--- «Иногда тихо смеётся»: голова мелко трясётся. shortcut: звука смеха в Config.SOUNDS нет — когда появится, играть его здесь.
+-- «Иногда тихо смеётся»: голова мелко трясётся и, когда ID вписан в Config, слышен смешок (как сигнал — играет сервер).
 local function laughSometimes(id: string, model: Model)
 	local turn = neckTurner(model)
 	if not turn then
 		return
+	end
+	local laugh: Sound? = nil
+	local head = model:FindFirstChild("Head")
+	if Config.SOUNDS.GrandmaLaugh ~= "rbxassetid://0" and head then
+		local sound = Instance.new("Sound")
+		sound.Name = "GrandmaLaugh"
+		sound.SoundId = Config.SOUNDS.GrandmaLaugh
+		sound.Volume = 0.4
+		sound.RollOffMaxDistance = 30 -- тихо: слышно только рядом с ней
+		sound.Parent = head
+		laugh = sound
 	end
 	task.spawn(function()
 		while model.Parent and truth[id] do
@@ -204,6 +215,9 @@ local function laughSometimes(id: string, model: Model)
 				break
 			end
 			log("бабушка тихо смеётся")
+			if laugh then
+				laugh:Play()
+			end
 			for i = 1, 6 do
 				turn(CFrame.Angles(math.rad(if i % 2 == 0 then 7 else -4), 0, 0))
 				task.wait(0.12)

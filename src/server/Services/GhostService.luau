@@ -16,8 +16,6 @@ local RateLimit = require(script.Parent.Parent:WaitForChild("RateLimit"))
 local ACTION_RATE = 4 -- GhostAction/ReviveRequest в секунду на игрока: сверх — отбрасываем до проверок
 local MAX_ID_LENGTH = 64
 local GHOST_TRANSPARENCY = 0.7
--- shortcut: тайминг не из Config (нет ключа) — сек, которые даём на возвращение, когда забрали всех; перенести в Config.
-local ALL_TAKEN_GRACE = 10
 local FREEZE_STEP = 0.1 -- как часто проверяем, не сдвинулся ли кто в блэкауте
 
 local GhostService = {}
@@ -69,15 +67,15 @@ local function stateData(reason: string?): { [string]: any }
 	return { RevivesLeft = revivesLeft, ProductId = Config.PRODUCT_REVIVE, Reason = reason }
 end
 
--- Все в рейсе — призраки: ждём ALL_TAKEN_GRACE, вдруг кто-то вернётся; нет — поражение.
+-- Все в рейсе — призраки: ждём Config.ALL_TAKEN_GRACE, вдруг кто-то вернётся; нет — поражение.
 local function checkAllTaken()
 	local list = riders()
 	if not running or #list == 0 or #living() > 0 then
 		return
 	end
-	log(`забрали всех — поражение через {ALL_TAKEN_GRACE} с, если никто не вернётся`)
+	log(`забрали всех — поражение через {Config.ALL_TAKEN_GRACE} с, если никто не вернётся`)
 	local run = runId
-	task.delay(ALL_TAKEN_GRACE, function()
+	task.delay(Config.ALL_TAKEN_GRACE, function()
 		if run ~= runId or not running or #riders() == 0 or #living() > 0 then
 			return
 		end
@@ -94,6 +92,11 @@ end
 
 function GhostService:CountTaken(): number
 	return taken
+end
+
+-- Сколько бесплатных возвращений осталось у команды в этом рейсе. MonetizationService тратит купленный заряд только при 0.
+function GhostService:GetRevivesLeft(): number
+	return revivesLeft
 end
 
 -- Забрать игрока рейса (AnomalyService: посветил на стоящего; блэкаут-«замри» здесь же). Водителя не забирают.
