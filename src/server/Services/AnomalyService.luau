@@ -37,6 +37,7 @@ local tickets: { [string]: { [string]: string } } = {} -- [PassengerId] = {Route
 local boardedAt: { [string]: number } = {} -- [PassengerId аномалии] = остановка посадки: бьёт с отъезда от следующей
 local twinOf: { [string]: string } = {} -- [PassengerId двойника] = PassengerId оригинала
 local atStop = 0 -- на какой остановке стоим (для boardedAt)
+local dangerousBoarded = false -- V11: в этом рейсе уже садилась опасная аномалия (для FirstAnomalyByStop)
 local runActive = false -- проверять и высаживать можно только в рейсе (не на экране итогов)
 local health = Config.BUS_MAX_HEALTH
 local hits = 0 -- сколько раз автобус получил урон за рейс (уровень эскалации)
@@ -115,6 +116,23 @@ local function pickType(pool: { [string]: number }, canTwin: boolean): AnomalyTy
 	return last
 end
 
+-- V11 «первая минута»: гарантированная аномалия — опасная и заметная сразу (зеркало, глаза, голова), если такие есть
+-- в наборе ночи; иначе любая опасная из набора. Двойника не берём: ему нужен оригинал в салоне.
+local OBVIOUS = { NoReflection = true, GlowingEyes = true, WrongHead = true }
+local function guaranteedPool(pool: { [string]: number }): { [string]: number }
+	local obvious: { [string]: number }, any: { [string]: number } = {}, {}
+	for id, weight in pool do
+		local kind = byId[id]
+		if kind and (kind.Class or "Dangerous") == "Dangerous" and id ~= "Twin" then
+			any[id] = weight
+			if OBVIOUS[id] then
+				obvious[id] = weight
+			end
+		end
+	end
+	return if next(obvious) then obvious else any
+end
+
 -- Опасная — та, что бьёт автобус и которую надо высадить. «Свои» (Safe) и особые (Special) живут по своим правилам.
 local function dangerous(kind: AnomalyType): boolean
 	return (kind.Class or "Dangerous") == "Dangerous"
@@ -135,6 +153,26 @@ end
 
 -- Двойник: цвета частей и одежда как у оригинала.
 local function copyLook(from: Model, to: Model)
+	-- Причёска, шапка, сумка (папка Look, V11): своё снять, копию оригинала приварить к своим частям тела.
+	local own, look = to:FindFirstChild("Look"), from:FindFirstChild("Look")
+	if own then
+		own:Destroy()
+	end
+	if look then
+		local copy = look:Clone() -- пока копия вне Workspace, её сварки не двигают оригинал
+		for _, part in copy:GetChildren() do
+			local weld = part:FindFirstChildOfClass("WeldConstraint")
+			local base = if weld then weld.Part0 else nil
+			local myBase = if base then to:FindFirstChild(base.Name) else nil
+			if weld and base and part:IsA("BasePart") and myBase and myBase:IsA("BasePart") then
+				part.CFrame = myBase.CFrame * base.CFrame:ToObjectSpace(part.CFrame)
+				weld.Part0 = myBase
+			else
+				part:Destroy()
+			end
+		end
+		copy.Parent = to
+	end
 	for _, item in to:GetDescendants() do
 		if item:IsA("BasePart") then
 			local same = from:FindFirstChild(item.Name, true)
@@ -178,8 +216,12 @@ local function turnHead(model: Model)
 	end
 end
 
--- Бабушка (Safe): платок поверх волос (лицо открыто) и котомка в правой руке.
+-- Бабушка (Safe): платок поверх волос (лицо открыто) и котомка в правой руке. Случайной шапки/сумки (Look) у неё нет.
 local function grandmaLook(model: Model)
+	local look = model:FindFirstChild("Look")
+	if look then
+		look:Destroy()
+	end
 	local head = model:FindFirstChild("Head")
 	if head and head:IsA("BasePart") then
 		local s = head.Size
@@ -296,7 +338,10 @@ function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): bo
 		count += 1
 	end
 	local night = nightData()
-	if count >= Config.MAX_ANOMALIES_AT_ONCE or math.random() >= night.AnomalyChance then
+	-- V11: к остановке FirstAnomalyByStop опасной ещё не было — этот пассажир будет ей без броска шанса.
+	local byStop = night.FirstAnomalyByStop
+	local guarantee = byStop ~= nil and not dangerousBoarded and atStop >= byStop
+	if count >= Config.MAX_ANOMALIES_AT_ONCE or (not guarantee and math.random() >= night.AnomalyChance) then
 		return false
 	end
 	local passengers = registry.PassengerService
@@ -310,11 +355,12 @@ function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): bo
 	end
 	local originalId: string? = if #candidates > 0 then candidates[math.random(#candidates)] else nil
 	local original = if originalId then aboard[originalId] else nil
-	local kind = pickType(night.Anomalies, originalId ~= nil)
+	local kind = pickType(if guarantee then guaranteedPool(night.Anomalies) else night.Anomalies, originalId ~= nil)
 	if not kind then
 		return false
 	end
 	truth[id] = kind
+	dangerousBoarded = dangerousBoarded or dangerous(kind)
 	boardedAt[id] = atStop
 	if kind.CueAttribute then
 		model:SetAttribute(kind.CueAttribute, if kind.Id == "Twin" then originalId else true)
@@ -400,6 +446,7 @@ function AnomalyService:Start()
 		table.clear(boardedAt)
 		table.clear(twinOf)
 		atStop = 0
+		dangerousBoarded = false
 		health, hits, amuletTried = Config.BUS_MAX_HEALTH, 0, false
 		caught, mistakes, stopsReached = 0, 0, 0
 		earnedPlus, earnedMinus = 0, 0

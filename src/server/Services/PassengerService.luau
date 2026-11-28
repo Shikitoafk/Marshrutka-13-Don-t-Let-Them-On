@@ -11,6 +11,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local Outfit = require(script.Parent.Parent:WaitForChild("Outfit"))
 
 local NPC_WALK_SPEED = 12
 local MAX_WALK_TIME = 4 -- сек: столько максимум идём к двери, потом садимся или остаёмся
@@ -21,7 +22,15 @@ local STAND_STEP = 3
 
 -- Цвета для простых пассажиров, если в ServerStorage.PassengerRigs пусто.
 local SKIN = { Color3.fromRGB(234, 192, 158), Color3.fromRGB(198, 145, 105), Color3.fromRGB(141, 95, 64), Color3.fromRGB(255, 220, 190) }
-local CLOTHES = { Color3.fromRGB(60, 70, 90), Color3.fromRGB(120, 40, 40), Color3.fromRGB(70, 90, 60), Color3.fromRGB(90, 90, 90), Color3.fromRGB(150, 120, 60), Color3.fromRGB(40, 40, 45) }
+local CLOTHES = {
+	Color3.fromRGB(60, 70, 90), Color3.fromRGB(120, 40, 40), Color3.fromRGB(70, 90, 60), Color3.fromRGB(90, 90, 90),
+	Color3.fromRGB(150, 120, 60), Color3.fromRGB(40, 40, 45), Color3.fromRGB(45, 70, 120), Color3.fromRGB(170, 150, 120),
+	Color3.fromRGB(95, 60, 90),
+}
+local HAIR = {
+	Color3.fromRGB(25, 22, 20), Color3.fromRGB(60, 40, 28), Color3.fromRGB(105, 72, 45), Color3.fromRGB(200, 170, 110),
+	Color3.fromRGB(150, 150, 150), Color3.fromRGB(140, 60, 35),
+}
 
 -- Особый пассажир (контролёр, V03): kind — Id аномалии, которой он станет (nil — человек, на аномалию не проверяем).
 type Special = { kind: string?, onBoarded: (id: string) -> () }
@@ -46,7 +55,38 @@ local function log(text: string)
 	end
 end
 
--- Модель пассажира: случайная из ServerStorage.PassengerRigs, иначе простой R15 случайных цветов.
+-- Внешность из простых деталей (V11): причёска или шапка (иногда с козырьком), иногда сумка через плечо —
+-- люди различаются, а «Близнецы» и «Не та голова» (козырёк смотрит назад) бросаются в глаза.
+-- Всё в папке Look: двойник копирует её целиком, у бабушки и контролёра её убирают.
+local function dressUp(model: Model)
+	local head = model:FindFirstChild("Head")
+	local torso = model:FindFirstChild("UpperTorso")
+	if not (head and head:IsA("BasePart") and torso and torso:IsA("BasePart")) then
+		return
+	end
+	local look = Instance.new("Folder")
+	look.Name = "Look"
+	look.Parent = model
+	local function add(base: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3)
+		Outfit.attach(base, name, size, offset, color).Parent = look
+	end
+	local s, roll = head.Size, math.random()
+	if roll < 0.55 then
+		add(head, "Hair", Vector3.new(s.X * 1.06, s.Y * 0.32, s.Z * 1.06), CFrame.new(0, s.Y * 0.4, 0.05), pick(HAIR))
+	elseif roll < 0.85 then
+		local color = pick(CLOTHES)
+		add(head, "Hat", Vector3.new(s.X * 1.15, s.Y * 0.42, s.Z * 1.15), CFrame.new(0, s.Y * 0.48, 0), color)
+		if math.random() < 0.5 then
+			add(head, "HatVisor", Vector3.new(s.X * 0.9, 0.12, s.Z * 0.45), CFrame.new(0, s.Y * 0.3, -s.Z * 0.65), color)
+		end
+	end -- остальные — без головного убора
+	if math.random() < 0.35 then
+		local t = torso.Size
+		add(torso, "ShoulderBag", Vector3.new(0.45, 1.1, 1), CFrame.new(t.X / 2 + 0.25, -t.Y * 0.35, 0), pick(CLOTHES))
+	end
+end
+
+-- Модель пассажира: случайная из ServerStorage.PassengerRigs, иначе простой R15 случайных цветов и внешности.
 local function makeModel(): Model?
 	local rigs = ServerStorage:FindFirstChild("PassengerRigs")
 	local options = if rigs then rigs:GetChildren() else {}
@@ -64,6 +104,7 @@ local function makeModel(): Model?
 		warn(`[PassengerService] Не удалось создать пассажира: {model}`)
 		return nil
 	end
+	dressUp(model)
 	return model
 end
 
