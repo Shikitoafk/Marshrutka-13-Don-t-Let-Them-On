@@ -196,6 +196,7 @@ local catalog: { [string]: Translation } = {
 	["notify.amulet_added"] = { en = "Amulet added.", ru = "Оберег добавлен." },
 	["notify.safe_ejected"] = { en = "They were on our side · −{penalty} ₸", ru = "Это был свой пассажир · −{penalty} ₸" },
 	["notify.stop_request"] = { en = "“Stop here, please!”", ru = "«Остановите здесь, пожалуйста!»" },
+	["notify.stop_skipped"] = { en = "Passed “{stop}” without opening the doors.", ru = "Проехали остановку «{stop}» без открытия дверей." },
 	["notify.controller_boarded"] = { en = "The inspector is on board.", ru = "В салон вошёл контролёр." },
 	["notify.controller_clean"] = { en = "Inspection passed · +{bonus} ₸", ru = "Проверка пройдена · +{bonus} ₸" },
 	["notify.controller_found"] = { en = "The inspector found {count} anomalies.", ru = "Контролёр нашёл аномалии: {count}." },
