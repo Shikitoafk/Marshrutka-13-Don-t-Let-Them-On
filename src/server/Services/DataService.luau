@@ -3,12 +3,15 @@
 local BadgeService = game:GetService("BadgeService")
 local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
+local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
 local Nights = require(Shared:WaitForChild("Nights"))
+local PlayerSettings = require(Shared:WaitForChild("PlayerSettings"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AUTOSAVE_INTERVAL = 2 * 60
@@ -25,6 +28,9 @@ export type Profile = {
 	OwnedSkins: { string },
 	UnlockedNight: number,
 	BestStars: { [string]: number },
+	OwnedCosmetics: { [string]: boolean },
+	Equipped: { [Cosmetics.Category]: string },
+	Settings: PlayerSettings.Values,
 }
 
 type Session = {
@@ -52,6 +58,11 @@ local departed: { [Player]: boolean } = {}
 setmetatable(departed, { __mode = "k" })
 local shuttingDown = false
 local monetization: { HasVIP: (any, Player) -> boolean }? = nil
+local rounds: { GetRiders: (any) -> { Player } }? = nil
+local cosmeticLastCall: { [Player]: number } = {}
+local cosmeticBusy: { [Player]: boolean } = {}
+setmetatable(cosmeticLastCall, { __mode = "k" })
+setmetatable(cosmeticBusy, { __mode = "k" })
 
 local function asInteger(value: any): number?
 	if type(value) == "number" and math.abs(value) <= MAX_SAFE_INTEGER and value % 1 == 0 then
@@ -65,6 +76,17 @@ local function readProfile(raw: any): Profile
 	local stats = if type(data.Stats) == "table" then data.Stats else {}
 	local skins: { string } = {}
 	local bestStars: { [string]: number } = {}
+	local owned: { [string]: boolean } = {}
+	local equipped: { [Cosmetics.Category]: string } = {}
+	for _, category: Cosmetics.Category in Cosmetics.Categories do
+		for _, item in Cosmetics.list(category) do
+			if item.Id == Cosmetics.Default[category] or (type(data.OwnedCosmetics) == "table" and data.OwnedCosmetics[item.Id] == true) then
+				owned[item.Id] = true
+			end
+		end
+		local id = if type(data.Equipped) == "table" then data.Equipped[category] else nil
+		equipped[category] = if type(id) == "string" and owned[id] and Cosmetics.find(category, id) then id else Cosmetics.Default[category]
+	end
 	if type(data.BestStars) == "table" then
 		for night = 1, #Nights do
 			local key = tostring(night)
@@ -91,6 +113,9 @@ local function readProfile(raw: any): Profile
 		OwnedSkins = skins,
 		UnlockedNight = math.clamp(asInteger(data.UnlockedNight) or 1, 1, #Nights),
 		BestStars = bestStars,
+		OwnedCosmetics = owned,
+		Equipped = equipped,
+		Settings = PlayerSettings.normalize(data.Settings) or table.clone(PlayerSettings.Default),
 	}
 end
 
@@ -101,6 +126,9 @@ local function copyProfile(profile: Profile): Profile
 		OwnedSkins = table.clone(profile.OwnedSkins),
 		UnlockedNight = profile.UnlockedNight,
 		BestStars = table.clone(profile.BestStars),
+		OwnedCosmetics = table.clone(profile.OwnedCosmetics),
+		Equipped = table.clone(profile.Equipped),
+		Settings = table.clone(profile.Settings),
 	}
 end
 
@@ -198,6 +226,9 @@ local function loadSession(session: Session)
 		if not session.closing and session.player.Parent == Players then
 			session.player:SetAttribute("ShowTutorial", not session.tutorialOffered)
 			session.player:SetAttribute("UnlockedNight", profile.UnlockedNight)
+			for _, category: Cosmetics.Category in Cosmetics.Categories do
+				session.player:SetAttribute("Equipped" .. category, profile.Equipped[category])
+			end
 			session.tutorialOffered = true
 			publishTenge(session.player, profile.Tenge)
 			if session.recovering then
@@ -271,6 +302,9 @@ local function saveSession(session: Session, final: boolean)
 		record.OwnedSkins = snapshot.OwnedSkins
 		record.UnlockedNight = snapshot.UnlockedNight
 		record.BestStars = snapshot.BestStars
+		record.OwnedCosmetics = snapshot.OwnedCosmetics
+		record.Equipped = snapshot.Equipped
+		record.Settings = snapshot.Settings
 		record.TutorialOffered = tutorialOffered
 		metadata.SessionId = if final then nil else session.id
 		metadata.SessionExpiresAt = if final then nil else os.time() + LEASE_DURATION
@@ -398,10 +432,76 @@ function DataService:IncrementStat(player: Player, name: string): boolean
 	return true
 end
 
+local function cosmeticAction(player: Player, action: unknown, category: unknown, id: unknown): (boolean, string)
+	if (category ~= "Flashlight" and category ~= "TakenEffect") or type(id) ~= "string" or #id > 32
+		or (action ~= "Buy" and action ~= "Equip")
+	then
+		return false, "shop.unavailable"
+	end
+	local item = Cosmetics.find(category, id)
+	if not item or item.GamepassId == 0 then return false, "shop.unavailable" end
+	local round = rounds
+	if round and table.find(round:GetRiders(), player) then return false, "shop.unavailable" end
+	local profile = mutableProfile(player)
+	if not profile then return false, "cosmetics.profile_unavailable" end
+	if not profile.OwnedCosmetics[id] then
+		local pass = item.GamepassId
+		if pass then
+			local ok, owns = pcall(MarketplaceService.UserOwnsGamePassAsync, MarketplaceService, player.UserId, pass)
+			if not ok or not owns or mutableProfile(player) ~= profile
+				or (round and table.find(round:GetRiders(), player))
+			then return false, "shop.unavailable" end
+		elseif action ~= "Buy" then
+			return false, "shop.unavailable"
+		elseif profile.Tenge < item.Price then
+			return false, "cosmetics.insufficient"
+		else
+			profile.Tenge -= item.Price
+		end
+		profile.OwnedCosmetics[id] = true
+		if not pass then publishTenge(player, profile.Tenge) end
+	end
+	if action == "Equip" then
+		profile.Equipped[category] = id
+		player:SetAttribute("Equipped" .. category, id)
+	end
+	return true, if action == "Equip" then "cosmetics.equipped" else "shop.owned"
+end
+
 function DataService:Init(services: { [string]: any })
 	monetization = services.MonetizationService
+	rounds = services.RoundService
 	Remotes.Function("GetProfile").OnServerInvoke = function(player)
 		return self:GetProfile(player)
+	end
+	local available, remote = pcall(Remotes.Function, "CosmeticAction")
+	if available then
+		remote.OnServerInvoke = function(player: Player, action: unknown, category: unknown, id: unknown)
+			local now = os.clock()
+			if cosmeticBusy[player] or now - (cosmeticLastCall[player] or -math.huge) < 0.4 then return false, "shop.purchasing" end
+			cosmeticLastCall[player], cosmeticBusy[player] = now, true
+			local ok, purchased, status = pcall(cosmeticAction, player, action, category, id)
+			cosmeticBusy[player] = nil
+			if not ok then return false, "shop.unavailable" end
+			return purchased, status
+		end
+	end
+	local settingsAvailable, settingsRemote = pcall(Remotes.Function, "UpdateSettings")
+	if settingsAvailable then
+		local nextUpdate: { [Player]: number } = {}
+		setmetatable(nextUpdate, { __mode = "k" })
+		settingsRemote.OnServerInvoke = function(player: Player, raw: unknown): boolean
+			local normalized = PlayerSettings.normalize(raw)
+			local now = os.clock()
+			if not normalized or now < (nextUpdate[player] or 0) then return false end
+			nextUpdate[player] = now + 0.4
+			local session = sessions[player]
+			if not session or session.closing or session.expiresAt <= os.time() then return false end
+			local profile = session.profile
+			if not profile then return false end
+			profile.Settings = normalized
+			return true
+		end
 	end
 end
 

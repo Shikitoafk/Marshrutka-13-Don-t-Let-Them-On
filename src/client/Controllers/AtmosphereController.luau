@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
+local ClientSettings = require(script.Parent.Parent.ClientSettings)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -215,7 +216,7 @@ function AtmosphereController:Start()
 		elseif effect == "Whispers" then
 			replay(whispers)
 		elseif effect == "LightsFlicker" then
-			if blackout.Enabled then
+			if blackout.Enabled or ClientSettings.get().ReducedEffects then
 				return
 			end
 			lightVersion += 1
@@ -224,7 +225,7 @@ function AtmosphereController:Start()
 			task.spawn(function()
 				for _, dark in { false, true, false } do
 					task.wait(FLICKER_STEP)
-					if lightVersion ~= version then
+					if lightVersion ~= version or ClientSettings.get().ReducedEffects then
 						return
 					end
 					applyLightState(dark, false)
@@ -241,6 +242,13 @@ function AtmosphereController:Start()
 			end)
 		end
 	end
+
+	ClientSettings.Changed:Connect(function()
+		if ClientSettings.get().ReducedEffects and cabinDark and not blackout.Enabled then
+			lightVersion += 1
+			applyLightState(false, false)
+		end
+	end)
 
 	local function applyResult(summary: { Won: boolean })
 		if ended or roundState == "Lobby" or roundState == "Countdown" then

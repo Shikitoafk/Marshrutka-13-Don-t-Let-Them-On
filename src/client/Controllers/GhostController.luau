@@ -5,8 +5,8 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
+local SettingsAudio = require(script.Parent.Parent.SettingsAudio)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -101,34 +101,6 @@ function GhostController:Start()
 	filter.Saturation = -1
 	filter.TintColor = Color3.fromRGB(196, 210, 225)
 	filter.Parent = Lighting
-	local group = Instance.new("SoundGroup")
-	group.Name = "GhostHearing"
-	group.Volume = 0.36
-	group.Parent = SoundService
-	local eq = Instance.new("EqualizerSoundEffect")
-	eq.HighGain = -24
-	eq.MidGain = -10
-	eq.Parent = group
-	local original: { [Sound]: SoundGroup } = {}
-	local ungrouped: { [Sound]: boolean } = {}
-
-	local function muffle(instance: Instance)
-		if not instance:IsA("Sound") or instance.SoundGroup == group then return end
-		local previous: SoundGroup? = instance.SoundGroup
-		if previous then original[instance] = previous else ungrouped[instance] = true end
-		instance.SoundGroup = group
-	end
-	local function restoreAudio()
-		for source, previous in original do
-			if source.SoundGroup == group then source.SoundGroup = previous end
-		end
-		for source in ungrouped do
-			if source.SoundGroup == group then source.SoundGroup = nil end
-		end
-		table.clear(original)
-		table.clear(ungrouped)
-	end
-
 	local running = false
 	local ghost = false
 	local freeRevives: number? = nil
@@ -156,21 +128,10 @@ function GhostController:Start()
 			return
 		end
 		screen.Enabled, filter.Enabled = enabled, enabled
-		if enabled then
-			for _, scope in { Workspace, SoundService } do
-				for _, source in scope:GetDescendants() do muffle(source) end
-			end
-		else
-			restoreAudio()
-		end
+		SettingsAudio.setGhost(enabled)
 		updateButton()
 	end
 
-	for _, scope in { Workspace, SoundService } do
-		scope.DescendantAdded:Connect(function(instance: Instance)
-			if screen.Enabled then muffle(instance) end
-		end)
-	end
 	player:GetAttributeChangedSignal("ReviveCredits"):Connect(updateButton)
 
 	knock.Activated:Connect(function()
