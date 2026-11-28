@@ -69,10 +69,13 @@
 | Модуль | Отвечает за |
 |---|---|
 | `IntroController` | Вступительная заставка при первом входе (T21) |
+| `EndingController` | Финал 5-й ночи: катсцена концовки (V10) |
 
 ### Общее (владелец: оркестратор)
 
-`src/shared/Remotes.luau`, `src/shared/Config.luau`, `src/shared/AnomalyTypes.luau`, `docs/*`.
+`src/shared/Remotes.luau`, `src/shared/Config.luau`, `src/shared/AnomalyTypes.luau`, `src/shared/Nights.luau`, `docs/*`, `.github/*`.
+
+Общие модули CX: `src/shared/Strings.luau`, `src/shared/Cosmetics.luau`, `src/shared/PlayerSettings.luau`; клиентские `src/client/ClientSettings.luau`, `src/client/SettingsAudio.luau`.
 
 ## Что код ожидает в Workspace (договорённость с теми, кто строит карту)
 
