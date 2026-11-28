@@ -48,6 +48,8 @@ local EVENTS = {
 
 local FUNCTIONS = {
 	"GetProfile", -- () -> {Tenge: number, Stats: {...}, OwnedSkins: {string}}
+	"CosmeticAction", -- (action: "Buy" | "Equip", category: "Flashlight" | "TakenEffect", id: string) -> (ok: boolean, status: string?) — V09
+	"UpdateSettings", -- (settings: {[string]: any}) -> boolean — P01, сервер нормализует через PlayerSettings
 }
 
 local Remotes = {}

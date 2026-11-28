@@ -1,0 +1,26 @@
+# Проверка каждого PR: проект собирается Rojo, все Luau-файлы без синтаксических ошибок.
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rojo и Luau
+        run: |
+          curl -sSL -o rojo.zip https://github.com/rojo-rbx/rojo/releases/download/v7.7.0/rojo-7.7.0-linux-x86_64.zip
+          curl -sSL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip
+          mkdir -p tools-bin && unzip -o -q rojo.zip -d tools-bin && unzip -o -q luau.zip -d tools-bin
+          chmod +x tools-bin/*
+      - name: Синтаксис Luau
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            tools-bin/luau-compile --text "$f" > /dev/null || { echo "::error file=$f::Ошибка синтаксиса"; fail=1; }
+          done < <(find src -name '*.luau')
+          exit $fail
+      - name: Сборка Rojo
+        run: tools-bin/rojo build -o build.rbxlx
