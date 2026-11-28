@@ -296,6 +296,12 @@ function AnomalyService:Reward(amount: number)
 	payRiders(amount)
 end
 
+-- Штраф всем в рейсе и в итоги (V12: закрыли двери перед обычным опоздавшим). VIP минусы не удваивает.
+function AnomalyService:Fine(amount: number)
+	earnedMinus -= amount
+	payRiders(-amount)
+end
+
 -- Есть ли в салоне аномалия этого типа (NightService: просьбы остановиться, V02).
 function AnomalyService:HasAboard(kindId: string): boolean
 	local passengers = registry.PassengerService

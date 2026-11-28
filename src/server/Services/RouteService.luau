@@ -25,6 +25,7 @@ local DOOR_COOLDOWN = 0.7
 local BUS_STATE_INTERVAL = 0.2 -- BusState не чаще 5 раз/сек
 local HORN_COOLDOWN = 1
 local START_DELAY = 3 -- сек после старта рейса: игроков сажают в автобус, пусть встанут на места
+local IN_BUS_RANGE = 25 -- studs от центра автобуса: кондуктор «в салоне» (двери на автопилоте, V12)
 
 type Stop = { index: number, name: string, from: number, center: number, to: number, served: boolean }
 type Door = { weld: Weld, closed: CFrame, open: CFrame }
@@ -48,6 +49,18 @@ local isFinished = function(): boolean
 	return false
 end
 local stopRun = function() end
+local holdDoorsNow = function(_seconds: number) end
+local setStalledNow = function(_on: boolean) end
+
+-- V12: автопилот держит двери открытыми ещё seconds (к дверям бежит опоздавший). Водитель решает сам.
+function RouteService:HoldDoors(seconds: number)
+	holdDoorsNow(seconds)
+end
+
+-- V12: поломка — мотор заглох (true): автобус тормозит и стоит, пока не заведут (false).
+function RouteService:SetStalled(on: boolean)
+	setStalledNow(on)
+end
 
 -- Прервать рейс (поражение): автобус плавно тормозит и стоит; дальше — ResetRun.
 function RouteService:StopRun()
@@ -208,6 +221,8 @@ function RouteService:Start()
 	local distance, speed, throttle = 0, 0, 0
 	local doorsOpen, running, finished = false, false, false
 	local dwellUntil, departAt, lastDoorsAt = 0, 0, 0
+	local holdUntil = 0 -- V12: автопилот не закрывает двери раньше (бежит опоздавший)
+	local stalled = false -- V12: поломка
 	local nextStop = 1
 	local lastDriver: Player? = nil
 	local lastStop: Stop? = nil
@@ -278,8 +293,21 @@ function RouteService:Start()
 		end
 	end)
 
+	-- Двери: водитель; если водителя нет (автопилот) — любой живой кондуктор рейса в салоне (V12, опоздавший в соло).
+	local function mayUseDoors(player: Player): boolean
+		local driver = getDriver()
+		if driver then
+			return player == driver
+		end
+		local round, ghosts = registry.RoundService, registry.GhostService
+		local character = player.Character
+		local body = if character then character:FindFirstChild("HumanoidRootPart") else nil
+		return round ~= nil and table.find(round:GetRiders(), player) ~= nil and not (ghosts and ghosts:IsGhost(player))
+			and body ~= nil and body:IsA("BasePart") and (body.Position - root.Position).Magnitude <= IN_BUS_RANGE
+	end
+
 	Remotes.Event("DoorsRequest").OnServerEvent:Connect(function(player: Player, open: unknown)
-		if not allowDoors(player) or player ~= getDriver() or type(open) ~= "boolean" or speed >= STOPPED_SPEED or time() - lastDoorsAt < DOOR_COOLDOWN then
+		if not allowDoors(player) or type(open) ~= "boolean" or speed >= STOPPED_SPEED or time() - lastDoorsAt < DOOR_COOLDOWN or not mayUseDoors(player) then
 			return
 		end
 		lastDoorsAt = time()
@@ -332,9 +360,12 @@ function RouteService:Start()
 
 			if doorsOpen or time() < departAt then
 				speed = 0 -- с открытыми дверями не едем
-				if doorsOpen and not driver and time() >= dwellUntil then
+				if doorsOpen and not driver and time() >= math.max(dwellUntil, holdUntil) then
 					setDoors(false)
 				end
+			elseif stalled then
+				speed = math.max(0, speed - Config.BUS_BRAKE * dt) -- мотор заглох: тормозим и стоим
+				distance += speed * dt
 			else
 				-- Автопилот едет к ближайшей необслуженной остановке, водитель — свободно, но у конечной тормозим сами.
 				local goal = if driver then stops[#stops] elseif s.served then stops[nextStop + 1] else s
@@ -388,11 +419,13 @@ function RouteService:Start()
 
 	startRun = function()
 		running, finished = true, false
+		stalled, holdUntil = false, 0
 		departAt = time() + START_DELAY
 		announce(stops[1], "Approaching")
 	end
 	resetRun = function()
 		running, finished = false, false
+		stalled, holdUntil = false, 0
 		distance, speed, throttle, nextStop = 0, 0, 0, 1
 		lastStop = nil
 		for _, s in stops do
@@ -406,7 +439,8 @@ function RouteService:Start()
 	end
 	stoppedBetween = function(): boolean
 		-- departAt: на старте рейса и после закрытия дверей автобус ещё законно стоит
-		if not running or finished or doorsOpen or time() < departAt or speed >= STOPPED_SPEED then
+		-- stalled: встал из-за поломки — не вина водителя (V12)
+		if not running or finished or stalled or doorsOpen or time() < departAt or speed >= STOPPED_SPEED then
 			return false
 		end
 		for _, s in stops do
@@ -418,6 +452,12 @@ function RouteService:Start()
 	end
 	stopRun = function()
 		finished = true
+	end
+	holdDoorsNow = function(seconds: number)
+		holdUntil = math.max(holdUntil, time() + seconds)
+	end
+	setStalledNow = function(on: boolean)
+		stalled = on
 	end
 end
 

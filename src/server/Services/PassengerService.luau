@@ -18,6 +18,7 @@ local MAX_WALK_TIME = 4 -- сек: столько максимум идём к �
 local EXIT_TIME = 2 -- сек: вышедший отходит от автобуса и исчезает
 local DOOR_STEP_OUT = 2 -- studs от двери наружу: куда подходят и откуда уходят
 local AISLE_BACK_Z = 11 -- studs назад от центра автобуса: где в проходе стоит Standing (V02)
+local RUNNER_DISTANCE = 50 -- studs за краем остановки (позади автобуса): откуда из темноты бежит опоздавший (V12)
 local STAND_STEP = 3
 
 -- Цвета для простых пассажиров, если в ServerStorage.PassengerRigs пусто.
@@ -192,6 +193,13 @@ local spawnSpecialNow = function(_stop: number, _dress: (Model) -> (), _special:
 end
 function PassengerService:SpawnSpecial(stop: number, dress: (Model) -> (), kind: string?, onBoarded: (id: string) -> ()): string?
 	return spawnSpecialNow(stop, dress, { kind = kind, onBoarded = onBoarded })
+end
+
+-- V12: опоздавший — из темноты бежит к дверям за LATE_RUNNER_RUN_TIME. Успел, пока двери открыты, — садится
+-- (kind — аномалия, решена заранее, признаки на нём уже есть). Двери закрыли перед ним — onMissed (штраф решает вызвавший).
+local runNow = function(_stop: number, _dress: ((Model) -> ())?, _kind: string?, _onMissed: () -> ()) end
+function PassengerService:SpawnRunner(stop: number, dress: ((Model) -> ())?, kind: string?, onMissed: () -> ())
+	runNow(stop, dress, kind, onMissed)
 end
 
 -- Встать в проходе в конце салона спиной ко всем (аномалия Standing, V02): место освобождается,
@@ -397,6 +405,33 @@ function PassengerService:Start()
 				payFare()
 			end
 			log(`Остановка {stop}: сел пассажир (выйдет на {p.exitStop})`)
+		end)
+	end
+
+	runNow = function(stop: number, dress: ((Model) -> ())?, kind: string?, onMissed: () -> ())
+		local id = spawnWaiter(stop, dress, { kind = kind, onBoarded = function(_id: string) end })
+		local list = waiting[stop]
+		local p = if list then list[1] else nil -- особого spawnWaiter ставит первым
+		local zone = zones[stop]
+		local spawnPart = if zone then zone:FindFirstChild("Spawn") else nil
+		if not (id and p and p.id == id and spawnPart and spawnPart:IsA("BasePart")) then
+			return
+		end
+		local start = spawnPart.CFrame * CFrame.new(0, spawnPart.Size.Y / 2 + 3, spawnPart.Size.Z / 2 + RUNNER_DISTANCE)
+		local target = doorOutside(start.Position)
+		p.model:PivotTo(CFrame.lookAt(start.Position, target))
+		p.humanoid.WalkSpeed = (target - start.Position).Magnitude / Config.LATE_RUNNER_RUN_TIME
+		p.humanoid:MoveTo(target)
+		log(`Остановка {stop}: бежит опоздавший`)
+		task.delay(Config.LATE_RUNNER_RUN_TIME, function()
+			if p.model.Parent then
+				board(p, stop) -- сядет, только если двери ещё открыты и есть место
+				task.wait(1)
+			end
+			if not onboard[p.id] and not doorsOpen then
+				log(`Остановка {stop}: опоздавший не успел — двери закрыли`)
+				onMissed()
+			end
 		end)
 	end
 

@@ -5,6 +5,7 @@
 
 local BadgeService = game:GetService("BadgeService")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -18,6 +19,7 @@ local STOP_WATCH_STEP = 0.25 -- как часто смотрим, не вста�
 local UNIFORM = Color3.fromRGB(30, 60, 150) -- синяя форма настоящего контролёра (правило ночи 5)
 local FAKE_UNIFORM = Color3.fromRGB(38, 44, 42) -- у фальшивого: почти чёрная и без жетона
 local BADGE = Color3.fromRGB(230, 185, 60)
+local ENGINE = Color3.fromRGB(60, 60, 64) -- люк двигателя у задней стенки (поломка, V12)
 
 local NightService = {}
 
@@ -26,6 +28,8 @@ local selected = 1 -- выбранная ночь
 local ruleBreaks = 0 -- нарушения правил ночи за рейс (V02/V04 зовут BreakRule): минус ★★
 local runId = 0 -- растёт на старте и конце рейса: отложенные проверки старого рейса не срабатывают
 local running = false
+local breakdownLeg: number? = nil -- V12: после отъезда от этой остановки заглохнет мотор (раз за рейс)
+local endBreakdown = function(_fixed: boolean) end -- настоящая — в :Start()
 
 local function log(text: string)
 	if RunService:IsStudio() then
@@ -129,6 +133,8 @@ function NightService:StartRun(riders: { Player })
 	ruleBreaks = 0
 	runId += 1
 	running = true
+	-- V12: поломка на случайном перегоне, не первом и не последнем
+	breakdownLeg = if Nights[selected].Events.Breakdown then math.random(2, #Config.STOP_NAMES - 2) else nil
 	for _, player in riders do
 		sendInfo(player)
 	end
@@ -174,6 +180,7 @@ end
 function NightService:FinishRun(won: boolean, mistakes: number, anomalyHits: number, riders: { Player }): (number, string?)
 	runId += 1
 	running = false
+	endBreakdown(false)
 	local stars = NightService.Stars(won, mistakes + ruleBreaks, anomalyHits)
 	local data = registry.DataService
 	if stars > 0 and data and data.RecordNight then
@@ -252,6 +259,132 @@ function NightService:Start()
 			notifyRiders("notify.controller_boarded", "Info")
 			if not fake then
 				check(id)
+			end
+		end)
+	end)
+
+	-- V12 опоздавший (Events.LateRunner): на остановке с шансом LATE_RUNNER_CHANCE из темноты бежит пассажир.
+	-- Человек или аномалия — решаем здесь (правда только на сервере); признаки аномалии видны уже на бегу.
+	local function runnerKind(pool: { [string]: number })
+		local options = {}
+		for _, kind in AnomalyTypes do
+			if pool[kind.Id] and kind.CueAttribute and kind.Id ~= "Twin" and (kind.Class or "Dangerous") == "Dangerous" then
+				table.insert(options, kind)
+			end
+		end
+		return if #options > 0 then options[math.random(#options)] else nil
+	end
+	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
+		local night = Nights[selected]
+		if not (running and phase == "AtStop" and night.Events.LateRunner and index < #Config.STOP_NAMES) or math.random() >= Config.LATE_RUNNER_CHANCE then
+			return
+		end
+		local kind = if math.random() < night.AnomalyChance then runnerKind(night.Anomalies) else nil
+		route:HoldDoors(Config.LATE_RUNNER_RUN_TIME + 1) -- автопилот ждёт; водитель решает сам
+		passengers:SpawnRunner(index, function(model: Model)
+			if kind and kind.CueAttribute then
+				model:SetAttribute(kind.CueAttribute, true)
+			end
+		end, if kind then kind.Id else nil, function()
+			if not kind then -- закрыли двери перед обычным — штраф всем
+				anomalies:Fine(Config.LATE_RUNNER_PENALTY)
+				notifyRiders("notify.late_runner_missed", "Bad", { penalty = Config.LATE_RUNNER_PENALTY })
+			end
+		end)
+		log(`опоздавший: {if kind then kind.Name else "человек"}`)
+	end)
+
+	-- V12 поломка (Events.Breakdown): раз за рейс посреди перегона мотор глохнет. «Завести» у двигателя в хвосте держат
+	-- BREAKDOWN_FIX_HOLD (живые водитель/кондукторы); не завели за BREAKDOWN_TIMEOUT — забирают одного живого.
+	local bus = Workspace:WaitForChild("Map"):WaitForChild("Bus") :: Model
+	local root = bus.PrimaryPart :: BasePart
+	local scareEvent = Remotes.Event("ScareEvent")
+	local hatch: BasePart? = nil
+	local function living(): { Player }
+		local round, ghosts = registry.RoundService, registry.GhostService
+		local list = {}
+		for _, player in (if round then round:GetRiders() else {}) do
+			if not (ghosts and ghosts:IsGhost(player)) then
+				table.insert(list, player)
+			end
+		end
+		return list
+	end
+	local function sendBreakdown(active: boolean, endsAt: number)
+		local round = registry.RoundService
+		for _, player in (if round then round:GetRiders() else {}) do
+			scareEvent:FireClient(player, "Breakdown", { Active = active, EndsAt = endsAt })
+		end
+	end
+	endBreakdown = function(fixed: boolean)
+		local part = hatch
+		if not part then
+			return
+		end
+		hatch = nil
+		part:Destroy()
+		route:SetStalled(false)
+		sendBreakdown(false, 0)
+		if fixed then
+			notifyRiders("notify.breakdown_fixed", "Good")
+		end
+		log(if fixed then "мотор завели" else "поломка кончилась")
+	end
+	local function startBreakdown()
+		if hatch then
+			return
+		end
+		local run = runId
+		route:SetStalled(true)
+		-- Люк двигателя у задней стенки салона (от рамки автобуса — подойдёт и настоящая модель)
+		local box, size = bus:GetBoundingBox()
+		local spot = root.CFrame:ToObjectSpace(box * CFrame.new(0, -size.Y / 2 + 3.5, size.Z / 2 - 1.2))
+		local part = Outfit.attach(root, "EngineHatch", Vector3.new(3, 1.6, 0.4), spot, ENGINE)
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "EngineFix"
+		-- shortcut: текст подсказки на сервере один для всех — CX может перевести его у себя на клиенте
+		prompt.ActionText = "Start engine"
+		prompt.HoldDuration = Config.BREAKDOWN_FIX_HOLD
+		prompt.MaxActivationDistance = 8
+		prompt.RequiresLineOfSight = false
+		prompt.Parent = part
+		hatch = part
+		prompt.Triggered:Connect(function(player: Player)
+			if run == runId and hatch == part and table.find(living(), player) then
+				endBreakdown(true)
+			end
+		end)
+		sendBreakdown(true, Workspace:GetServerTimeNow() + Config.BREAKDOWN_TIMEOUT)
+		notifyRiders("notify.breakdown", "Warn")
+		log("поломка: мотор заглох")
+		task.delay(Config.BREAKDOWN_TIMEOUT, function()
+			if run ~= runId or hatch ~= part then
+				return -- завели, или рейс кончился
+			end
+			local ghosts, roles = registry.GhostService, registry.RoleService
+			local candidates = {}
+			for _, player in living() do
+				if not (roles and roles:GetDriver() == player) then -- водителя не забирают
+					table.insert(candidates, player)
+				end
+			end
+			local victim = if #candidates > 0 then candidates[math.random(#candidates)] else nil
+			if victim and ghosts then
+				ghosts:Take(victim, "breakdown")
+				notifyRiders("notify.breakdown_taken", "Bad", { player = victim.DisplayName })
+			end
+			endBreakdown(false)
+		end)
+	end
+	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
+		if not (running and phase == "Departed" and index == breakdownLeg) then
+			return
+		end
+		breakdownLeg = nil
+		local run = runId
+		task.delay(math.random(4, 9), function() -- посреди перегона
+			if run == runId and running then
+				startBreakdown()
 			end
 		end)
 	end)
