@@ -62,20 +62,20 @@ local Config = {
 
 	-- Звуки (вставить ID из Creator Store)
 	SOUNDS = {
-		DoorOpen = "rbxassetid://0",
-		DoorClose = "rbxassetid://0",
-		Horn = "rbxassetid://0",
+		DoorOpen = "rbxassetid://104970206145568",
+		DoorClose = "rbxassetid://98445470555676",
+		Horn = "rbxassetid://95557198733467",
 		Engine = "rbxassetid://0",
 		RadioStatic = "rbxassetid://0",
-		Whispers = "rbxassetid://0",
+		Whispers = "rbxassetid://138668626617588",
 		Ambience = "rbxassetid://0",
-		Jumpscare = "rbxassetid://0",
-		Knock = "rbxassetid://0", -- стук в окно
-		Bang = "rbxassetid://0", -- удар по крыше
-		Heartbeat = "rbxassetid://0", -- сердцебиение при низкой прочности (loop)
-		PhoneRing = "rbxassetid://0", -- телефон звонит под сиденьем
-		StopChime = "rbxassetid://0", -- «динь» перед объявлением остановки
-		Music = "rbxassetid://0", -- тихая жуткая музыка в рейсе (loop)
+		Jumpscare = "rbxassetid://119146144435977",
+		Knock = "rbxassetid://109157623487684", -- стук в окно
+		Bang = "rbxassetid://98955331896298", -- удар по крыше
+		Heartbeat = "rbxassetid://73591801900686", -- сердцебиение при низкой прочности (loop)
+		PhoneRing = "rbxassetid://94997087414745", -- телефон звонит под сиденьем
+		StopChime = "rbxassetid://92359031477245", -- «динь» перед объявлением остановки
+		Music = "rbxassetid://117865907003168", -- тихая жуткая музыка в рейсе (loop)
 		GrandmaLaugh = "rbxassetid://0", -- тихий смешок бабушки (V02)
 	},
 
