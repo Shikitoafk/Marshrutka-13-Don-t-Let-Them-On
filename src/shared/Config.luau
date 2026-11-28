@@ -85,6 +85,13 @@ local Config = {
 	SPEAK_STRANGE_NORMAL = 0.1, -- обычный пассажир иногда тоже
 	ATTACK_DARK_TIME = 1.5, -- сек темноты AnomalyAttack до урона
 
+	-- V12: опоздавший и поломка
+	LATE_RUNNER_CHANCE = 0.3, -- шанс на остановку (ночи с Events.LateRunner), не больше одного за остановку
+	LATE_RUNNER_RUN_TIME = 5, -- сек бега до дверей
+	LATE_RUNNER_PENALTY = 10, -- ₸ каждому, если закрыли двери перед обычным
+	BREAKDOWN_FIX_HOLD = 6, -- сек держать «Завести»
+	BREAKDOWN_TIMEOUT = 30, -- не завели за это время — забирают одного живого
+
 	SCARES_PER_LEG_MIN = 1,
 	SCARES_PER_LEG_MAX = 2,
 	SCARE_EXTRA_PER_ANOMALY = 1, -- +событие за каждую аномалию в салоне

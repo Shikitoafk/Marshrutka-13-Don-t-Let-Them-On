@@ -18,6 +18,8 @@ export type Night = {
 		FakeControllerChance: number?, -- шанс, что контролёр фальшивый
 		BlackoutFreeze: boolean?, -- в блэкауте нельзя двигаться
 		StopRequests: boolean?, -- пассажиры просят остановить между остановками
+		LateRunner: boolean?, -- V12: к дверям бежит опоздавший (обычный или аномалия)
+		Breakdown: boolean?, -- V12: раз за ночь мотор глохнет на случайном перегоне
 	},
 }
 
@@ -47,7 +49,7 @@ local Nights: { Night } = {
 		AnomalyChance = 0.33,
 		Anomalies = { NoReflection = 3, WrongTicket = 3, GlowingEyes = 2, NoShadow = 2, Twin = 2 },
 		Rules = rules({ "rule.controller" }),
-		Events = { ControllerAtStop = 5 },
+		Events = { ControllerAtStop = 5, LateRunner = true },
 	},
 	{
 		Index = 3,
@@ -55,7 +57,7 @@ local Nights: { Night } = {
 		AnomalyChance = 0.36,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 3, Grandma = 2 },
 		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins" }),
-		Events = { ControllerAtStop = 4 },
+		Events = { ControllerAtStop = 4, LateRunner = true, Breakdown = true },
 	},
 	{
 		Index = 4,
@@ -63,7 +65,7 @@ local Nights: { Night } = {
 		AnomalyChance = 0.38,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 2, Grandma = 2, Standing = 2, WrongHead = 2 },
 		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.standing", "rule.blackout_freeze" }),
-		Events = { ControllerAtStop = 5, BlackoutFreeze = true },
+		Events = { ControllerAtStop = 5, BlackoutFreeze = true, LateRunner = true, Breakdown = true },
 	},
 	{
 		Index = 5,
@@ -71,7 +73,7 @@ local Nights: { Night } = {
 		AnomalyChance = 0.4,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 2, Grandma = 2, Standing = 2, WrongHead = 2, StopRequest = 3 },
 		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.standing", "rule.blackout_freeze", "rule.no_unscheduled_stops", "rule.real_controller" }),
-		Events = { ControllerAtStop = 4, FakeControllerChance = 0.5, BlackoutFreeze = true, StopRequests = true },
+		Events = { ControllerAtStop = 4, FakeControllerChance = 0.5, BlackoutFreeze = true, StopRequests = true, LateRunner = true, Breakdown = true },
 	},
 }
 

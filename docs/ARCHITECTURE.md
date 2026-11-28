@@ -123,7 +123,7 @@ ServerStorage
 | Событие | Аргументы | Кто может |
 |---|---|---|
 | `DriverInput` | `throttle: number` от −1 до 1 | Только Водитель |
-| `DoorsRequest` | `open: boolean` | Только Водитель, только при скорости ≈0 |
+| `DoorsRequest` | `open: boolean` | Водитель; если водителя нет (автопилот) — любой живой Кондуктор в салоне (V12). Только при скорости ≈0 |
 | `HornRequest` | — | Только Водитель, кулдаун 1 сек |
 | `InspectPassenger` | `passengerId: string, tool: "Ticket" \| "Flashlight"` | Кондуктор, дистанция ≤ `INSPECT_RANGE`, кулдаун |
 | `EjectPassenger` | `passengerId: string` | Кондуктор, дистанция ≤ `INSPECT_RANGE`, кулдаун. **Можно в любой момент рейса**, в том числе на ходу (решение по PR #4: вычислил аномалию на перегоне — сразу выкинул) |
@@ -223,6 +223,7 @@ ServerStorage
 
 | `name` | `data` | Что видит/слышит игрок |
 |---|---|---|
+| `Breakdown` | `{Active: boolean, EndsAt: number}` | V12: мотор заглох — свет мигает/гаснет, стук; `Active=false` — завели или время вышло. Силуэты у окон и «отступают под фонарём» — клиентский эффект (CX) |
 | `AnomalyAttack` | `{PassengerId: string, UserId: number}` | V11: пропущенная опасная аномалия в конце перегона — темнота 1.5 с, пассажир вплотную к игроку, Jumpscare, затем урон |
 | `WindowKnock` | `{Side: "Left" \| "Right", Z: number}` | стук + отпечатки ладоней на стекле в точке Z (координата вдоль автобуса), исчезают через 10 сек |
 | `RoofBang` | `{}` | тяжёлый удар по крыше, тряска камеры, лампы качнулись |
@@ -258,6 +259,10 @@ ServerStorage
   `PlayerTaken(reason="flashlight_standing")`. `StopRequest` — пассажир с `AsksToStop` просит остановить (Notify
   `notify.stop_request`); если водитель остановился вне зоны остановки, пока просьба активна → урон `STOP_REQUEST_DAMAGE`
   (на автопилоте не бывает).
+- V12, ключи Notify: `notify.late_runner_missed` {penalty}, `notify.breakdown`, `notify.breakdown_fixed`, `notify.breakdown_taken` {player}.
+  Опоздавший — обычная серверная модель пассажира (те же признаки, правда только на сервере). Пока он бежит, автопилот
+  держит двери открытыми до `LATE_RUNNER_RUN_TIME + 1` с или до закрытия кондуктором. Поломка: `ProximityPrompt` «Завести»
+  у двигателя в хвосте (HoldDuration = `BREAKDOWN_FIX_HOLD`, только живые Кондукторы/Водитель), таймаут → `GhostService:Take(..., "breakdown")`.
 - Новые ключи Notify: `notify.safe_ejected` {penalty}, `notify.stop_request`, `notify.controller_boarded`,
   `notify.controller_clean` {bonus}, `notify.controller_found` {count}, `notify.player_taken` {player},
   `notify.player_revived` {player}, `notify.freeze` (свет погас — замри!).

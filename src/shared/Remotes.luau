@@ -18,7 +18,7 @@ local FOLDER_NAME = "Remotes"
 local EVENTS = {
 	-- Клиент -> Сервер
 	"DriverInput", -- (throttle: number)  -1..1, газ/тормоз водителя
-	"DoorsRequest", -- (open: boolean)    водитель открывает/закрывает двери
+	"DoorsRequest", -- (open: boolean)    водитель открывает/закрывает двери; при автопилоте (водителя нет) — кондуктор (V12)
 	"HornRequest", -- ()                  сигнал
 	"FlashlightAim", -- (direction: Vector3) — кондуктор наводит фонарь-Tool по камере; сервер: единичный вектор, rate limit, только свой включённый фонарь (B10)
 	"InspectPassenger", -- (passengerId: string, tool: "Ticket" | "Flashlight")
