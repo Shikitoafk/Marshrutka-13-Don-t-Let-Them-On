@@ -5,17 +5,12 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ClientSettings = require(script.Parent.Parent.Parent.ClientSettings)
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Config = require(Shared:WaitForChild("Config"))
-local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
-
 local Flashlight = {}
 
 local RENDER_STEP = "MarshrutkaFlashlight"
-local BEAM_ANGLE = 28
-local BEAM_RANGE = Config.INSPECT_RANGE * 2
-local CONE_EDGE = math.cos(math.rad(BEAM_ANGLE / 2))
-local BEAM_SLOPE = math.tan(math.rad(BEAM_ANGLE / 2))
+local BEAM_RANGE = 45
+local BEAM_ANGLE = 50
+local AIM_INTERVAL = 0.1
 type Fadeable = BasePart | Decal
 
 local function setTransparency(part: Fadeable, value: number)
@@ -45,7 +40,33 @@ local function makeEye(): Part
 	return eye
 end
 
-function Flashlight.new()
+function Flashlight.find(container: Instance?): Tool?
+	if container then
+		for _, child in container:GetChildren() do
+			if child:IsA("Tool") and child:GetAttribute("ConductorFlashlight") == true then
+				return child
+			end
+		end
+	end
+	return nil
+end
+
+local function getLamp(tool: Tool?): (Attachment?, SpotLight?)
+	local lens = if tool then tool:FindFirstChild("Lens") else nil
+	local pivot = if lens then lens:FindFirstChild("Aim") else nil
+	local lamp = if pivot then pivot:FindFirstChild("Lamp") else nil
+	if pivot and pivot:IsA("Attachment") and lamp and lamp:IsA("SpotLight") then
+		return pivot, lamp
+	end
+	return nil, nil
+end
+
+function Flashlight.isOn(tool: Tool?): boolean
+	local _, light = getLamp(tool)
+	return light ~= nil and light.Enabled
+end
+
+function Flashlight.new(previewMode: boolean)
 	local emitter = effectPart("MarshrutkaFlashlight")
 	emitter.Size = Vector3.one * 0.15
 	emitter.Transparency = 1
@@ -76,7 +97,8 @@ function Flashlight.new()
 	light.Brightness = 5
 	light.Color = Color3.fromRGB(255, 244, 215)
 	light.Shadows = true
-	light.Parent = emitter
+	light.Enabled = false
+	if previewMode then light.Parent = emitter end
 
 	local originalTransparency: { [Fadeable]: number } = {}
 	local ghostParts: { [Fadeable]: boolean } = {}
@@ -86,7 +108,10 @@ function Flashlight.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local isOn = false
 	local view: CFrame? = nil
-	local beamSlope = BEAM_SLOPE
+	local beamRange = BEAM_RANGE
+	local coneEdge = math.cos(math.rad(BEAM_ANGLE / 2))
+	local nextAimAt = 0
+	local remotes = if previewMode then nil else ReplicatedStorage:WaitForChild("Remotes")
 
 	local function clearUnused()
 		for part, original in originalTransparency do
@@ -107,8 +132,11 @@ function Flashlight.new()
 
 	local function updateBeam(character: Model?)
 		local camera = Workspace.CurrentCamera
-		local head = if character then character:FindFirstChild("Head") else nil
-		if not camera or not head or not head:IsA("BasePart") then
+		local pivot, lamp = getLamp(Flashlight.find(character))
+		local head = if previewMode and character then character:FindFirstChild("Head") else nil
+		local origin = if pivot and lamp and lamp.Enabled then pivot.WorldPosition
+			elseif head and head:IsA("BasePart") then head.Position else nil
+		if not camera or not origin then
 			view = nil
 			light.Enabled = false
 			beam.Enabled = false
@@ -116,24 +144,33 @@ function Flashlight.new()
 		end
 
 		rayParams.FilterDescendantsInstances = if character then { character } else {}
-		local cameraPose = camera.CFrame
-		local aimRay = cameraPose.LookVector * (BEAM_RANGE + (cameraPose.Position - head.Position).Magnitude)
-		local aimHit = Workspace:Raycast(cameraPose.Position, aimRay, rayParams)
-		local aim = if aimHit then aimHit.Position else cameraPose.Position + aimRay
-		local origin = head.CFrame:PointToWorldSpace(Vector3.new(head.Size.X * 0.65, 0, 0))
-		local offset = aim - origin
-		local direction = if offset.Magnitude > 0.1 and offset:Dot(cameraPose.LookVector) > 0
-			then offset.Unit
-			else cameraPose.LookVector
+		local direction = camera.CFrame.LookVector
 		local pose = CFrame.lookAlong(origin, direction)
+		local style = lamp or light
+		beamRange = style.Range
+		local halfAngle = math.rad(style.Angle / 2)
+		coneEdge = math.cos(halfAngle)
+		beam.Color = ColorSequence.new(style.Color)
 		view = pose
 		emitter.CFrame = pose
-		local obstruction = Workspace:Raycast(origin, direction * BEAM_RANGE, rayParams)
-		local length = if obstruction then obstruction.Distance else BEAM_RANGE
+		local obstruction = Workspace:Raycast(origin, direction * beamRange, rayParams)
+		local length = if obstruction then obstruction.Distance else beamRange
 		endAttachment.Position = Vector3.new(0, 0, -length)
-		beam.Width1 = math.max(beam.Width0, length * 2 * beamSlope)
-		light.Enabled = true
+		beam.Width1 = math.max(beam.Width0, length * 2 * math.tan(halfAngle))
+		light.Enabled = previewMode
 		beam.Enabled = true
+
+		if pivot and pivot.Parent and pivot.Parent:IsA("BasePart") then
+			pivot.CFrame = pivot.Parent.CFrame:ToObjectSpace(pose)
+			local now = os.clock()
+			if remotes and now >= nextAimAt then
+				nextAimAt = now + AIM_INTERVAL
+				local aim = remotes:FindFirstChild("FlashlightAim")
+				if aim and aim:IsA("RemoteEvent") then
+					aim:FireServer(direction)
+				end
+			end
+		end
 	end
 
 	local function render(character: Model?)
@@ -156,17 +193,6 @@ function Flashlight.new()
 		end
 		isOn = enabled
 		if enabled then
-			local id = player:GetAttribute("EquippedFlashlight")
-			local palette: { [string]: { color: Color3, angle: number } } = Cosmetics.Beams
-			local style = if type(id) == "string" then palette[id] or palette.Classic else palette.Classic
-			light.Angle = style.angle
-			light.Color = style.color
-			beam.Color = if id == "Rainbow" then ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 83, 105)),
-				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(96, 255, 181)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(124, 110, 255)),
-			}) else ColorSequence.new(style.color)
-			beamSlope = math.tan(math.rad(style.angle / 2))
 			emitter.Parent = Workspace
 			render(player.Character)
 			RunService:BindToRenderStep(RENDER_STEP, Enum.RenderPriority.Camera.Value + 1, function()
@@ -201,7 +227,7 @@ function Flashlight.new()
 			end
 			local direction = target.Position - pose.Position
 			local distance = direction.Magnitude
-			if distance <= 0 or distance > BEAM_RANGE or pose.LookVector:Dot(direction.Unit) < CONE_EDGE then
+			if distance <= 0 or distance > beamRange or pose.LookVector:Dot(direction.Unit) < coneEdge then
 				continue
 			end
 			local hit = Workspace:Raycast(pose.Position, direction, rayParams)
