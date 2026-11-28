@@ -218,6 +218,32 @@ local function rearSeat(bus: Model, root: BasePart): BasePart?
 	return rear
 end
 
+type NeckJoint = Motor6D | AnimationConstraint
+type NeckPose = { base: CFrame, applied: CFrame? }
+
+local function getNeckJoint(model: Instance): (NeckJoint?, BasePart?, Attachment?)
+	local neck = model:FindFirstChild("Neck", true)
+	if neck and neck:IsA("Motor6D") and neck.Part1 then
+		return neck, neck.Part0, nil
+	end
+	if neck and neck:IsA("AnimationConstraint") then
+		local attachment = neck.Attachment0
+		local torso = if attachment then attachment.Parent else nil
+		if torso and torso:IsA("BasePart") then
+			return neck, torso, attachment
+		end
+	end
+	return nil, nil, nil
+end
+
+local function restoreNeck(joint: NeckJoint, pose: NeckPose)
+	if joint:IsA("Motor6D") then
+		joint.C0 = pose.base
+	elseif joint.Transform == pose.applied then
+		joint.Transform = pose.base
+	end
+end
+
 function HorrorController:Start()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
@@ -428,37 +454,55 @@ function HorrorController:Start()
 			local folder = bus:FindFirstChild("Passengers")
 			if not folder then return end
 			clear(name)
-			local necks: { [Motor6D]: CFrame } = {}
+			local necks: { [NeckJoint]: NeckPose } = {}
 			keep(name, math.clamp(data.Duration, 0, 10), function()
 				local camera = Workspace.CurrentCamera
 				if not camera or not busPresent() then return false end
-				for joint, original in necks do
+				for joint, pose in necks do
 					if not joint:IsDescendantOf(folder) then
-						joint.C0 = original
+						restoreNeck(joint, pose)
 						necks[joint] = nil
 					end
 				end
 				for _, model in folder:GetChildren() do
-					local neck = model:FindFirstChild("Neck", true)
-					if neck and neck:IsA("Motor6D") and neck.Part0 and neck.Part1 then
-						local original = necks[neck] or neck.C0
-						necks[neck] = original
-						local jointPose = neck.Part0.CFrame * original
+					local joint, torso, attachment = getNeckJoint(model)
+					if joint and torso then
+						local pose: NeckPose = necks[joint] or { base = if joint:IsA("Motor6D") then joint.C0 else joint.Transform }
+						necks[joint] = pose
+						local jointPose = if attachment then attachment.WorldCFrame else torso.CFrame * pose.base
 						local offset = jointPose:PointToObjectSpace(camera.CFrame.Position)
 						if offset.Magnitude > 0.1 then
 							local yaw = math.atan2(-offset.X, -offset.Z)
 							local pitch = math.atan2(offset.Y, Vector2.new(offset.X, offset.Z).Magnitude)
-							neck.C0 = original * CFrame.Angles(math.clamp(pitch, -0.4, 0.4), yaw, 0)
+							local turn = CFrame.Angles(math.clamp(pitch, -0.4, 0.4), yaw, 0)
+							if joint:IsA("Motor6D") then
+								joint.C0 = pose.base * turn
+							else
+								-- Между кадрами Animator может обновить Transform. Не складываем свой поворот с собой.
+								local current = joint.Transform
+								if current ~= pose.applied then pose.base = current end
+								joint.Transform = turn * pose.base
+								pose.applied = joint.Transform
+							end
 						end
 					end
 				end
 				return true
 			end, function()
-				for neck, original in necks do neck.C0 = original end
+				for joint, pose in necks do
+					restoreNeck(joint, pose)
+				end
 			end)
 		end
 	end
 
+	-- Roblox применяет базовый Transform анимации до PreSimulation.
+	RunService.PreSimulation:Connect(function()
+		local stare = effects.Stare
+		if round == "Running" and stare and not stare.update(os.clock()) then
+			clear("Stare")
+		end
+	end)
 	RunService:BindToRenderStep("MarshrutkaHorrorRestore", Enum.RenderPriority.Camera.Value - 1, restoreCamera)
 	RunService:BindToRenderStep("MarshrutkaHorror", Enum.RenderPriority.Camera.Value + 2, function()
 		local now = os.clock()
@@ -468,7 +512,7 @@ function HorrorController:Start()
 		end
 		if round ~= "Running" then return end
 		for name, effect in effects do
-			if not effect.update(now) then clear(name) end
+			if name ~= "Stare" and not effect.update(now) then clear(name) end
 		end
 		local reduced = ClientSettings.get().ReducedEffects
 		local activeShake = not reduced and now < shakeUntil
