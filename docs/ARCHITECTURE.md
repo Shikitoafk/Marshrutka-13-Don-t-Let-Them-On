@@ -75,6 +75,8 @@
 
 `src/shared/Remotes.luau`, `src/shared/Config.luau`, `src/shared/AnomalyTypes.luau`, `src/shared/Nights.luau`, `docs/*`, `.github/*`.
 
+Серверный `FlashlightService` (фонарь-Tool, батарея, B10) — владелец CX.
+
 Общие модули CX: `src/shared/Strings.luau`, `src/shared/Cosmetics.luau`, `src/shared/PlayerSettings.luau`; клиентские `src/client/ClientSettings.luau`, `src/client/SettingsAudio.luau`.
 
 ## Что код ожидает в Workspace (договорённость с теми, кто строит карту)

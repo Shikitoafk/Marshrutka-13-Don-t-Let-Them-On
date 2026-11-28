@@ -20,6 +20,7 @@ local EVENTS = {
 	"DriverInput", -- (throttle: number)  -1..1, газ/тормоз водителя
 	"DoorsRequest", -- (open: boolean)    водитель открывает/закрывает двери
 	"HornRequest", -- ()                  сигнал
+	"FlashlightAim", -- (direction: Vector3) — кондуктор наводит фонарь-Tool по камере; сервер: единичный вектор, rate limit, только свой включённый фонарь (B10)
 	"InspectPassenger", -- (passengerId: string, tool: "Ticket" | "Flashlight")
 	"EjectPassenger", -- (passengerId: string)
 	"LobbyReady", -- (ready: boolean)
