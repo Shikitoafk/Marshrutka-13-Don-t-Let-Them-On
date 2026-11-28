@@ -3,6 +3,7 @@
 -- Ночь в лобби выбирает лидер рейса — первый нажавший «Готов» (его ведёт RoundService) — через NightSelect,
 -- не выше своей открытой ночи. В рейсе ночь не меняется.
 
+local BadgeService = game:GetService("BadgeService")
 local RunService = game:GetService("RunService")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -138,8 +139,39 @@ function NightService:SendInfo(player: Player)
 	sendInfo(player)
 end
 
--- AnomalyService: рейс окончен. Возвращает звёзды; хотя бы одна — записываем в профиль (откроет следующую ночь).
-function NightService:FinishRun(won: boolean, mistakes: number, anomalyHits: number, riders: { Player }): number
+-- Финал последней ночи (V10): доехали до «Конечной» — ★★ и больше «Good», ★ «Bad»; не доехали или не последняя — нет.
+function NightService.Ending(night: number, stars: number): string?
+	if night ~= #Nights or stars <= 0 then
+		return nil
+	end
+	return if stars >= 2 then "Good" else "Bad"
+end
+assert(
+	NightService.Ending(#Nights, 3) == "Good" and NightService.Ending(#Nights, 1) == "Bad"
+		and NightService.Ending(#Nights, 0) == nil and NightService.Ending(1, 3) == nil,
+	"[NightService] Ending: концовки считаются неверно"
+)
+
+-- Бейдж за концовку. shortcut: ключей BADGES.EndingGood/EndingBad в Config ещё нет (контракт) — до них не выдаём.
+local function awardEnding(player: Player, ending: string)
+	local id = (Config.BADGES :: any)["Ending" .. ending]
+	if type(id) ~= "number" or id <= 0 or player.UserId <= 0 then
+		return
+	end
+	task.spawn(function()
+		local ok, err = pcall(function()
+			if not BadgeService:UserHasBadgeAsync(player.UserId, id) then
+				BadgeService:AwardBadgeAsync(player.UserId, id)
+			end
+		end)
+		if not ok then
+			warn(`[NightService] Бейдж концовки {id}: {err}`)
+		end
+	end)
+end
+
+-- AnomalyService: рейс окончен. Возвращает звёзды и концовку (V10); хотя бы одна звезда — записываем в профиль.
+function NightService:FinishRun(won: boolean, mistakes: number, anomalyHits: number, riders: { Player }): (number, string?)
 	runId += 1
 	running = false
 	local stars = NightService.Stars(won, mistakes + ruleBreaks, anomalyHits)
@@ -149,7 +181,17 @@ function NightService:FinishRun(won: boolean, mistakes: number, anomalyHits: num
 			task.spawn(data.RecordNight, data, player, selected, stars) -- ходит в DataStore
 		end
 	end
-	return stars
+	local ending = NightService.Ending(selected, stars)
+	if ending then
+		log(`концовка {ending}`)
+		for _, player in riders do
+			awardEnding(player, ending)
+		end
+		if ending == "Bad" then
+			selected = 1 -- «Маршрут 13 не заканчивается»: снова депо ночи 1
+		end
+	end
+	return stars, ending
 end
 
 function NightService:Init(services: { [string]: any })
