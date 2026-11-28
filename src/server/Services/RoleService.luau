@@ -1,6 +1,7 @@
 --!strict
 -- Роли рейса: один случайный Водитель, остальные Кондукторы; если игрок один — он Кондуктор, а едет автопилот.
--- Водитель вышел из игры: назначаем нового из оставшихся, а если остался один игрок — автопилот.
+-- Водитель вышел из игры: назначаем нового из оставшихся живых (не призраков), если живых хотя бы двое
+-- (один рулит, другой ищет аномалии); иначе — автопилот.
 
 local Players = game:GetService("Players")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
@@ -8,6 +9,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local RoleService = {}
 
+local registry: { [string]: any } = {}
 local roles: { [Player]: string } = {}
 local driver: Player? = nil
 
@@ -40,19 +42,23 @@ function RoleService:ClearRoles()
 	driver = nil
 end
 
-function RoleService:Init(_services: { [string]: any })
+function RoleService:Init(services: { [string]: any })
+	registry = services
 	Players.PlayerRemoving:Connect(function(player)
 		roles[player] = nil
 		if player ~= driver then
 			return
 		end
 		driver = nil
-		local rest: { Player } = {}
+		local ghosts = registry.GhostService
+		local living: { Player } = {}
 		for other in roles do
-			table.insert(rest, other)
+			if not (ghosts and ghosts:IsGhost(other)) then
+				table.insert(living, other)
+			end
 		end
-		if #rest >= 2 then
-			local newDriver = rest[math.random(#rest)]
+		if #living >= 2 then
+			local newDriver = living[math.random(#living)]
 			driver = newDriver
 			setRole(newDriver, "Driver") -- на сиденье его посадит RoundService
 		end
