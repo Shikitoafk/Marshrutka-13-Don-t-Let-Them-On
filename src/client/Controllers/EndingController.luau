@@ -24,6 +24,8 @@ local SILHOUETTE = Color3.fromRGB(8, 8, 10)
 local CAP = Color3.fromRGB(26, 34, 58)
 local EYES = Color3.fromRGB(255, 60, 40)
 local DAWN_FOG = Color3.fromRGB(196, 168, 150)
+local DAWN_AMBIENT = Color3.fromRGB(118, 108, 104)
+local DAWN_OUTDOOR = Color3.fromRGB(172, 150, 134) -- тёплая земля на рассвете
 
 local localPlayer = Players.LocalPlayer
 local playing = false
@@ -69,6 +71,7 @@ local function play(ending: string)
 		end
 	end
 	root.Anchored = true
+	local rootStart = root.CFrame -- места в салоне считаем от стартовой точки: копия потом уезжает
 	copy.Name = "EndingBus"
 	copy.Parent = Workspace
 
@@ -162,7 +165,7 @@ local function play(ending: string)
 	fade.Parent = screen
 	local title = Instance.new("TextLabel")
 	title.AnchorPoint = Vector2.new(0.5, 0.5)
-	title.Position = UDim2.fromScale(0.5, 0.42)
+	title.Position = UDim2.fromScale(0.5, 0.2) -- сверху: не закрывать водителя
 	title.Size = UDim2.fromScale(0.9, 0.18)
 	title.BackgroundTransparency = 1
 	title.Font = Enum.Font.GothamBlack
@@ -218,6 +221,8 @@ local function play(ending: string)
 		FogStart = Lighting.FogStart,
 		FogEnd = Lighting.FogEnd,
 		FogColor = Lighting.FogColor,
+		Ambient = Lighting.Ambient,
+		OutdoorAmbient = Lighting.OutdoorAmbient,
 	}
 	local savedDensity = if atmosphere then atmosphere.Density else 0
 
@@ -309,13 +314,21 @@ local function play(ending: string)
 		end)
 		tween(fade, 1.2, { BackgroundTransparency = 1 })
 		setLights(true)
-		tween(Lighting, 5, { ClockTime = 6.4, Brightness = 2.2, FogStart = 120, FogEnd = 900, FogColor = DAWN_FOG })
+		tween(Lighting, 5, {
+			ClockTime = 6.2,
+			Brightness = 2.2,
+			FogStart = 120,
+			FogEnd = 900,
+			FogColor = DAWN_FOG,
+			Ambient = DAWN_AMBIENT,
+			OutdoorAmbient = DAWN_OUTDOOR,
+		})
 		if atmosphere then
 			tween(atmosphere, 5, { Density = 0.12 })
 		end
 		hold(5, "dawn")
 		-- 2. Водитель снимает фуражку.
-		local face = seatFrame * CFrame.new(0, 3.7, -9)
+		local face = seatFrame * CFrame.new(0, 3.7, -6)
 		track(function()
 			return CFrame.lookAt(face.Position, (seatFrame * CFrame.new(0, 3.6, 0)).Position)
 		end)
@@ -346,8 +359,8 @@ local function play(ending: string)
 		end
 		hold(1.2, "pass")
 		-- 2. В салоне: свет гаснет, силуэт водителя медленно поворачивает голову назад.
-		local offset = root.CFrame:ToObjectSpace(seatFrame * CFrame.new(2.2, 4.3, 7))
-		local target = root.CFrame:ToObjectSpace(seatFrame * CFrame.new(0, 3.7, 0))
+		local offset = rootStart:ToObjectSpace(seatFrame * CFrame.new(2.2, 4.3, 7))
+		local target = rootStart:ToObjectSpace(seatFrame * CFrame.new(0, 3.7, 0))
 		track(function()
 			return CFrame.lookAt((root.CFrame * offset).Position, (root.CFrame * target).Position)
 		end)
