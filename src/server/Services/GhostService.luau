@@ -279,10 +279,11 @@ function GhostService:Start()
 		end)
 	end
 
-	-- Призрак сбросил персонажа (меню → Reset) — новый тоже призрак.
+	-- Призрак сбросил персонажа (меню → Reset) — новый тоже призрак. Но не при Возвращении: CharacterAdded
+	-- срабатывает внутри LoadCharacterAsync, пока ghosts[player] ещё true (снимаем его только после успеха).
 	local function watch(player: Player)
 		player.CharacterAdded:Connect(function(character)
-			if ghosts[player] and running then
+			if ghosts[player] and running and not reviving[player] then
 				task.defer(ghostLook, character) -- после того, как подгрузится внешность
 			end
 		end)
