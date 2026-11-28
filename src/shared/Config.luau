@@ -80,6 +80,11 @@ local Config = {
 	},
 
 	-- Пугалки (ScareEventService): сколько событий на перегон
+	-- V11: реплики пассажиров и сцена пропуска
+	SPEAK_STRANGE_ANOMALY = 0.5, -- опасная аномалия говорит «не то»
+	SPEAK_STRANGE_NORMAL = 0.1, -- обычный пассажир иногда тоже
+	ATTACK_DARK_TIME = 1.5, -- сек темноты AnomalyAttack до урона
+
 	SCARES_PER_LEG_MIN = 1,
 	SCARES_PER_LEG_MAX = 2,
 	SCARE_EXTRA_PER_ANOMALY = 1, -- +событие за каждую аномалию в салоне
@@ -118,7 +123,7 @@ local Config = {
 			{ Id = "Ceiling", Price = 0, GamepassId = 0 }, -- утащило в потолок, Robux
 		},
 	},
-	BADGES = { Night1 = 0, Night2 = 0, Night3 = 0, Night4 = 0, Night5 = 0, PerfectNight = 0 }, -- ID бейджей
+	BADGES = { Night1 = 0, Night2 = 0, Night3 = 0, Night4 = 0, Night5 = 0, PerfectNight = 0, EndingGood = 0, EndingBad = 0 }, -- ID бейджей
 
 	-- DataStore
 	DATASTORE_NAME = "PlayerData_v1",
