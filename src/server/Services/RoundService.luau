@@ -4,6 +4,7 @@
 -- (в прыжке Humanoid теряет скорость автобуса и улетает к задней стенке) и возвращает отставших.
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -20,6 +21,13 @@ local RoundService = {}
 
 local registry: { [string]: any } = {}
 local riders: { Player } = {} -- кто едет в этом рейсе
+
+-- Для разбора в Studio (B12): смены состояния и отказы «Готов» видно в Output.
+local function log(text: string)
+	if RunService:IsStudio() then
+		print(`[Round] {text}`)
+	end
+end
 
 function RoundService:Init(services: { [string]: any })
 	registry = services
@@ -95,6 +103,7 @@ function RoundService:Start()
 	end
 
 	local function broadcast()
+		log(`состояние {state}`)
 		roundState:FireAllClients(state, snapshot())
 	end
 	broadcastNow = broadcast
@@ -148,22 +157,29 @@ function RoundService:Start()
 			ghosts:FinishRun()
 		end
 		task.delay(Config.RESULTS_SCREEN_TIME, function()
-			roles:ClearRoles()
-			for _, player in table.clone(riders) do -- копия: пока ждём персонажа, кто-то может выйти из игры
-				if player.Parent then
-					-- в депо; заодно вернёт прыжок и снимет с сиденья. pcall: иначе ошибка навсегда оставит раунд в Results
-					local ok, err = pcall(player.LoadCharacterAsync, player)
-					if not ok then
-						warn(`[RoundService] Не удалось вернуть {player.Name} в депо: {err}`)
+			-- Уборка целиком под pcall (B12): упади любой шаг — раунд навсегда остался бы в Results и «Готов» не принимался.
+			local cleaned, problem = pcall(function()
+				roles:ClearRoles()
+				for _, player in table.clone(riders) do -- копия: пока ждём персонажа, кто-то может выйти из игры
+					if player.Parent then
+						-- в депо; заодно вернёт прыжок и снимет с сиденья
+						local ok, err = pcall(player.LoadCharacterAsync, player)
+						if not ok then
+							warn(`[RoundService] Не удалось вернуть {player.Name} в депо: {err}`)
+						end
 					end
 				end
+				table.clear(riders)
+				local passengers = registry.PassengerService
+				if passengers then
+					passengers:Clear()
+				end
+				route:ResetRun() -- в автобусе никого — можно перенести его на старт
+			end)
+			if not cleaned then
+				warn(`[RoundService] Уборка после рейса упала, всё равно возвращаемся в лобби: {problem}`)
+				table.clear(riders)
 			end
-			table.clear(riders)
-			local passengers = registry.PassengerService
-			if passengers then
-				passengers:Clear()
-			end
-			route:ResetRun() -- в автобусе никого — можно перенести его на старт
 			state = "Lobby"
 			broadcast()
 		end)
@@ -247,7 +263,11 @@ function RoundService:Start()
 
 	local allowReady = RateLimit.new(READY_RATE)
 	Remotes.Event("LobbyReady").OnServerEvent:Connect(function(player: Player, isReady: unknown)
-		if not allowReady(player) or (state ~= "Lobby" and state ~= "Countdown") or type(isReady) ~= "boolean" or time() - (lastReadyAt[player] or 0) < READY_COOLDOWN then
+		if not allowReady(player) or type(isReady) ~= "boolean" or time() - (lastReadyAt[player] or 0) < READY_COOLDOWN then
+			return
+		end
+		if state ~= "Lobby" and state ~= "Countdown" then
+			log(`«Готов» от {player.Name} не принят: сейчас {state}`) -- B12: если залипнет, тут видно, в каком состоянии
 			return
 		end
 		lastReadyAt[player] = time()
