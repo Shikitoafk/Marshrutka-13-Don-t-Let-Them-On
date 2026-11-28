@@ -346,7 +346,11 @@ function AnomalyService:FinishRun(won: boolean)
 	local nights, ghosts = registry.NightService, registry.GhostService
 	local bonus = if won then Config.FINISH_BONUS else 0
 	local list = riders()
-	local stars = if nights then nights:FinishRun(won, mistakes, hits, list) else 0
+	local night = if nights then nights:GetNight() else 1 -- до FinishRun: после концовки Bad ночь сбросится на 1
+	local stars, ending = 0, nil
+	if nights then
+		stars, ending = nights:FinishRun(won, mistakes, hits, list)
+	end
 	local taken = if ghosts and ghosts.CountTaken then ghosts:CountTaken() else 0 -- GhostService (V04)
 	for _, player in list do
 		local vip = shop ~= nil and shop:HasVIP(player) -- x2 к плюсам делает DataService; в итогах считаем так же
@@ -356,9 +360,10 @@ function AnomalyService:FinishRun(won: boolean)
 			Caught = caught,
 			Mistakes = mistakes,
 			StopsReached = stopsReached,
-			Night = if nights then nights:GetNight() else 1,
+			Night = night,
 			Stars = stars,
 			Taken = taken,
+			Ending = ending, -- V10: "Good" | "Bad" на «Конечной» последней ночи, иначе nil
 		})
 		if data then
 			task.spawn(function()
