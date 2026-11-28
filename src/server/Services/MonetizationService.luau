@@ -13,6 +13,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local MonetizationService = {}
 local notify = Remotes.Event("Notify")
 local MAX_ATTEMPTS = 4
+local REFUND_RETRY_INTERVAL = 2 ^ MAX_ATTEMPTS
 
 type Ledger = { [string]: boolean | string }
 type Receipt = { PlayerId: number, ProductId: number, PurchaseId: string }
@@ -22,7 +23,7 @@ local amulets = if Config.PRODUCT_AMULET > 0 then DataStoreService:GetDataStore(
 local revives = if Config.PRODUCT_REVIVE > 0 then DataStoreService:GetDataStore(Config.DATASTORE_NAME .. "_Revives") else nil
 local vipOwners: { [Player]: boolean } = {}
 local consuming: { [Player]: boolean } = {}
-local reviveBusy: { [Player]: boolean } = {}
+local reviveBusy: { [number]: boolean } = {}
 local nextReviveAt: { [Player]: number } = {}
 type GhostService = {
 	IsGhost: (any, Player) -> boolean,
@@ -69,6 +70,34 @@ local function publishRevives(player: Player, ledger: Ledger)
 	player:SetAttribute("ReviveCredits", count)
 end
 
+local function refundRevive(userId: number, receiptId: string, useId: string): Ledger?
+	return updateLedger(revives, userId, function(current)
+		-- Повтор после потерянного ответа не должен отменить более позднее списание.
+		if current[receiptId] == useId then
+			current[receiptId] = true
+		end
+		return current
+	end)
+end
+
+local function retryReviveRefund(userId: number, receiptId: string, useId: string)
+	task.delay(REFUND_RETRY_INTERVAL, function()
+		if reviveBusy[userId] then
+			retryReviveRefund(userId, receiptId, useId)
+			return
+		end
+		reviveBusy[userId] = true
+		local ledger = refundRevive(userId, receiptId, useId)
+		reviveBusy[userId] = nil
+		if not ledger then
+			retryReviveRefund(userId, receiptId, useId)
+			return
+		end
+		local player = Players:GetPlayerByUserId(userId)
+		if player then publishRevives(player, ledger) end
+	end)
+end
+
 local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecision
 	local userId = receipt.PlayerId
 	local isRevive = receipt.ProductId == Config.PRODUCT_REVIVE and revives ~= nil
@@ -82,10 +111,10 @@ local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecisio
 	if not player then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if isRevive and reviveBusy[player] then
+	if isRevive and reviveBusy[userId] then
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
-	if isRevive then reviveBusy[player] = true end
+	if isRevive then reviveBusy[userId] = true end
 
 	local receiptId = receipt.PurchaseId
 	local added = false
@@ -98,8 +127,9 @@ local function getReceiptDecision(receipt: Receipt): Enum.ProductPurchaseDecisio
 		return current
 	end)
 	if isRevive then
-		if ledger then publishRevives(player, ledger) end
-		reviveBusy[player] = nil
+		local online = Players:GetPlayerByUserId(userId)
+		if ledger and online then publishRevives(online, ledger) end
+		reviveBusy[userId] = nil
 	end
 	local status = if ledger then ledger[receiptId] else nil
 	if status ~= true and type(status) ~= "string" then
@@ -150,11 +180,13 @@ local function loadPasses(player: Player)
 	task.spawn(checkPass, player, Config.GAMEPASS_RADIO)
 	if revives and player.UserId > 0 then
 		task.spawn(function()
-			if reviveBusy[player] then return end
-			reviveBusy[player] = true
-			local ledger = updateLedger(revives, player.UserId, function(current) return current end)
-			if ledger then publishRevives(player, ledger) end
-			reviveBusy[player] = nil
+			local userId = player.UserId
+			if reviveBusy[userId] then return end
+			reviveBusy[userId] = true
+			local ledger = updateLedger(revives, userId, function(current) return current end)
+			local online = Players:GetPlayerByUserId(userId)
+			if ledger and online then publishRevives(online, ledger) end
+			reviveBusy[userId] = nil
 		end)
 	end
 end
@@ -197,13 +229,14 @@ end
 
 function MonetizationService:RedeemRevive(player: Player, preferredReceipt: string?): boolean
 	local service = ghosts
-	if not service or not revives or player.Parent ~= Players or player.UserId <= 0 or reviveBusy[player] or not service:IsGhost(player) then
+	local userId = player.UserId
+	if not service or not revives or player.Parent ~= Players or userId <= 0 or reviveBusy[userId] or not service:IsGhost(player) then
 		return false
 	end
-	reviveBusy[player] = true
+	reviveBusy[userId] = true
 	local useId = HttpService:GenerateGUID(false)
 	local selected: string? = nil
-	local ledger = updateLedger(revives, player.UserId, function(current)
+	local ledger = updateLedger(revives, userId, function(current)
 		selected = nil
 		for receiptId, state in current do
 			if state == useId or (state == true and (preferredReceipt == nil or receiptId == preferredReceipt)) then
@@ -220,17 +253,17 @@ function MonetizationService:RedeemRevive(player: Player, preferredReceipt: stri
 		local ok, result = pcall(service.Revive, service, player)
 		restored = ok and result == true
 		if not restored then
-			local refunded = updateLedger(revives, player.UserId, function(current)
-				if current[receiptId] == useId then
-					current[receiptId] = true
-				end
-				return current
-			end)
-			if refunded then ledger = refunded end
+			local refunded = refundRevive(userId, receiptId, useId)
+			if refunded then
+				ledger = refunded
+			else
+				retryReviveRefund(userId, receiptId, useId)
+			end
 		end
 	end
-	if ledger then publishRevives(player, ledger) end
-	reviveBusy[player] = nil
+	local online = Players:GetPlayerByUserId(userId)
+	if ledger and online then publishRevives(online, ledger) end
+	reviveBusy[userId] = nil
 	return restored
 end
 
