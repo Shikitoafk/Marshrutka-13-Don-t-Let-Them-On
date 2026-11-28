@@ -152,10 +152,10 @@ assert(
 	"[NightService] Ending: концовки считаются неверно"
 )
 
--- Бейдж за концовку. shortcut: ключей BADGES.EndingGood/EndingBad в Config ещё нет (контракт) — до них не выдаём.
+-- Бейдж за концовку: Config.BADGES.EndingGood / EndingBad (0 — не выдавать).
 local function awardEnding(player: Player, ending: string)
-	local id = (Config.BADGES :: any)["Ending" .. ending]
-	if type(id) ~= "number" or id <= 0 or player.UserId <= 0 then
+	local id = if ending == "Good" then Config.BADGES.EndingGood else Config.BADGES.EndingBad
+	if id <= 0 or player.UserId <= 0 then
 		return
 	end
 	task.spawn(function()

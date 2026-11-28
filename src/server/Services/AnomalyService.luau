@@ -25,10 +25,6 @@ local BAG = Color3.fromRGB(105, 80, 50) -- котомка
 local LAUGH_EVERY_MIN, LAUGH_EVERY_MAX = 12, 25 -- сек между «тихими смешками» бабушки
 -- V11, реплики: ключи Strings line.normal.1..NORMAL_LINES и line.anomaly.1..ANOMALY_LINES (тексты — CX).
 local NORMAL_LINES, ANOMALY_LINES = 20, 15
--- shortcut: шансы реплик и темнота перед уроном не в Config (ключей нет) — предложены в PR, перенести в Config.
-local SPEAK_STRANGE_ANOMALY = 0.5 -- опасная аномалия говорит «не то»
-local SPEAK_STRANGE_NORMAL = 0.1 -- обычный тоже иногда говорит странное
-local ATTACK_DARK_TIME = 1.5 -- сек сцены AnomalyAttack (темнота) до урона
 
 local byId: { [string]: AnomalyType } = {}
 for _, kind in AnomalyTypes do
@@ -325,7 +321,7 @@ end
 -- Опасная аномалия в половине случаев говорит «не то», обычный иногда тоже: подсказка, а не доказательство.
 local function speak(id: string)
 	local kind = truth[id]
-	local strange = math.random() < (if kind and dangerous(kind) then SPEAK_STRANGE_ANOMALY else SPEAK_STRANGE_NORMAL)
+	local strange = math.random() < (if kind and dangerous(kind) then Config.SPEAK_STRANGE_ANOMALY else Config.SPEAK_STRANGE_NORMAL)
 	local key = if strange then `line.anomaly.{math.random(ANOMALY_LINES)}` else `line.normal.{math.random(NORMAL_LINES)}`
 	for _, player in riders() do
 		Remotes.Event("PassengerSpeak"):FireClient(player, id, key)
@@ -548,7 +544,7 @@ function AnomalyService:Start()
 				scareEvent:FireClient(player, "AnomalyAttack", { PassengerId = id, UserId = victim.UserId })
 			end
 			log(`пропущенная аномалия нападает на {victim.Name}`)
-			task.wait(ATTACK_DARK_TIME)
+			task.wait(Config.ATTACK_DARK_TIME)
 		end
 		if runActive and truth[id] then -- пока было темно, рейс мог кончиться
 			damage(Config.ANOMALY_DAMAGE)
