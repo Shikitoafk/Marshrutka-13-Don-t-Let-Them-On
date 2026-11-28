@@ -157,10 +157,15 @@ local function updateWithRetry(key: string, transform: Transform, expectedOwner:
 			return result, keyInfo, true
 		end
 		if not ok then
-			if RunService:IsStudio() and string.find(string.lower(tostring(result)), "you must publish this place", 1, true) then
+			local message = string.lower(tostring(result))
+			local unpublished = string.find(message, "you must publish this place", 1, true)
+			local studioApisDisabled = string.find(message, "studioaccesstoapisnotallowed", 1, true)
+				or string.find(message, "studio access to apis is not enabled", 1, true)
+			if RunService:IsStudio() and (unpublished or studioApisDisabled) then
 				if not memoryOnly then
 					memoryOnly = true
-					warn("[DataService] Плейс не опубликован. Профили доступны на время теста и не сохраняются.")
+					local fallbackReason = if unpublished then "Плейс не опубликован." else "Доступ Studio к API выключен."
+					warn(`[DataService] {fallbackReason} Профили доступны на время теста и не сохраняются.`)
 				end
 				return nil, nil, false
 			end
