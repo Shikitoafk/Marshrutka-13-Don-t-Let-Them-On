@@ -105,18 +105,12 @@ local function unlockedNight(player: Player): number
 end
 
 -- RoundService: у лобби новый лидер. Выбор сохраняется между рейсами, но не выше открытой у нового лидера.
+-- Синхронно (B08): GetUnlockedNight профиль не ждёт (не загружен — 1), поэтому отсчёт стартует уже с проверенной ночью.
+-- RoundService сам разошлёт RoundState после смены лидера.
 function NightService:OnLeaderChanged(leader: Player?)
-	if not leader then
-		return
+	if leader then
+		selected = math.min(selected, unlockedNight(leader))
 	end
-	task.spawn(function() -- профиль может ещё грузиться
-		local max = unlockedNight(leader)
-		local round = registry.RoundService
-		if selected > max and round and round:GetLeader() == leader then
-			selected = max
-			round:Broadcast()
-		end
-	end)
 end
 
 local function sendInfo(player: Player)

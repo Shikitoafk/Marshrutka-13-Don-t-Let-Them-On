@@ -119,7 +119,7 @@ function RoundService:Start()
 		end
 		local nights = registry.NightService
 		if readyOrder[1] ~= before and nights then
-			nights:OnLeaderChanged(readyOrder[1])
+			nights:OnLeaderChanged(readyOrder[1]) -- синхронно: отсчёт после setReady стартует с уже проверенной ночью (B08)
 		end
 	end
 
