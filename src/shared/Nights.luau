@@ -10,6 +10,7 @@ export type Night = {
 	Index: number,
 	NameKey: string, -- Strings: night.N.name
 	AnomalyChance: number,
+	FirstAnomalyByStop: number?, -- V11: не позже этой остановки сядет хотя бы одна опасная аномалия (nil — без гарантии)
 	Anomalies: { [string]: number }, -- [AnomalyId] = вес
 	Rules: { string }, -- ключи Strings: rule.*
 	Events: {
@@ -34,7 +35,8 @@ local Nights: { Night } = {
 	{
 		Index = 1,
 		NameKey = "night.1.name", -- «Первый рейс»
-		AnomalyChance = 0.3,
+		AnomalyChance = 0.4,
+		FirstAnomalyByStop = 1,
 		Anomalies = { NoReflection = 3, WrongTicket = 3, GlowingEyes = 2 },
 		Rules = rules({}),
 		Events = {},

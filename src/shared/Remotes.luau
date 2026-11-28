@@ -33,6 +33,7 @@ local EVENTS = {
 	"StopChanged", -- (index: number, name: string, phase: "Approaching" | "AtStop" | "Departed")
 	"BusState", -- (speed: number, health: number, doorsOpen: boolean)
 	"PassengerBoarded", -- (passengerId: string)
+	"PassengerSpeak", -- (passengerId: string, lineKey: string) — реплика пассажира пузырём над головой (V11)
 	"PassengerLeft", -- (passengerId: string, reason: "Exited" | "Ejected" | "Vanished")
 	"InspectResult", -- (passengerId: string, tool: string, data: {[string]: any})
 	"AnomalyEscalated", -- (level: number, effect: string)
