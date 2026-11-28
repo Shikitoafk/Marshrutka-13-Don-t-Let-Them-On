@@ -13,6 +13,11 @@ local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AtmosphereController = {}
+local blackoutFor: (number) -> () = function() end
+
+function AtmosphereController:BlackoutFor(duration: number)
+	blackoutFor(duration)
+end
 local stopChime: Sound? = nil
 
 local FLICKER_STEP = 0.25
@@ -101,6 +106,7 @@ function AtmosphereController:Start()
 	local ended = false
 	local cabinDark = false
 	local lightVersion = 0
+	local blackoutEndsAt = 0
 	local originalLights: { [Light]: boolean } = {}
 	local currentBus: Model? = nil
 	local currentRoot: BasePart? = nil
@@ -172,6 +178,7 @@ function AtmosphereController:Start()
 
 	local function clearEffects()
 		lightVersion += 1
+		blackoutEndsAt = 0
 		applyLightState(false, false)
 		for _, sound in cabinSounds do
 			sound:Stop()
@@ -184,6 +191,22 @@ function AtmosphereController:Start()
 	local function isRunning(): boolean
 		-- Пока RoundService не подключён, RouteService запускает greybox сам.
 		return not ended and (roundState == nil or roundState == "Running")
+	end
+
+	blackoutFor = function(duration: number)
+		if not isRunning() then return end
+		local deadline = os.clock() + duration
+		if deadline <= blackoutEndsAt then return end
+		blackoutEndsAt = deadline
+		lightVersion += 1
+		local version = lightVersion
+		applyLightState(true, true)
+		task.delay(duration, function()
+			if lightVersion == version then
+				blackoutEndsAt = 0
+				applyLightState(false, false)
+			end
+		end)
 	end
 
 	local function applyBusState(speed: number, _health: number, doorsOpen: boolean)
@@ -232,14 +255,7 @@ function AtmosphereController:Start()
 				end
 			end)
 		elseif effect == "Blackout" then
-			lightVersion += 1
-			local version = lightVersion
-			applyLightState(true, true)
-			task.delay(BLACKOUT_DURATION, function()
-				if lightVersion == version then
-					applyLightState(false, false)
-				end
-			end)
+			blackoutFor(BLACKOUT_DURATION)
 		end
 	end
 
