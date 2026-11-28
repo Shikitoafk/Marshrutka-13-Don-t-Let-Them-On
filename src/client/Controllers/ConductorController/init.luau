@@ -248,8 +248,8 @@ function ConductorController:Start()
 	end
 
 	local mirror = Mirror.new(viewport)
-	local flashlight = Flashlight.new()
 	local previewMode = RunService:IsStudio() and Workspace:GetAttribute("StudioHudLobbyPreview") == true
+	local flashlight = Flashlight.new(previewMode)
 	local previewBus: Model? = nil
 	local roundState = "Lobby"
 	local role: string? = nil
@@ -463,6 +463,18 @@ function ConductorController:Start()
 	local function refreshCabin()
 		local bus = currentBus()
 		local models = refreshTargets(bus)
+		if not previewMode then
+			local tool = Flashlight.find(player.Character)
+			local held = tool or Flashlight.find(player:FindFirstChildOfClass("Backpack"))
+			local charge = if held then held:GetAttribute("Battery") else nil
+			battery = if type(charge) == "number" then charge else Config.FLASHLIGHT_BATTERY
+			local lampOn = Flashlight.isOn(tool)
+			if lampOn ~= lightOn then
+				setLight(lampOn)
+			else
+				updateLightButton()
+			end
+		end
 		if mirrorShade.Visible then
 			missingCabin.Visible = not mirror.update(bus)
 		end
@@ -492,7 +504,7 @@ function ConductorController:Start()
 			refreshCabin()
 			local elapsed = 0
 			tickConnection = RunService.Heartbeat:Connect(function(dt)
-				if lightOn then
+				if previewMode and lightOn then
 					battery = math.max(0, battery - dt)
 					if battery == 0 then
 						setLight(false)
@@ -550,7 +562,18 @@ function ConductorController:Start()
 	end)
 	lightButton.Activated:Connect(function()
 		if screen.Enabled and not dialog.Visible and not mirrorShade.Visible then
-			setLight(not lightOn)
+			if previewMode then
+				setLight(not lightOn)
+				return
+			end
+			local equipped = Flashlight.find(player.Character)
+			if equipped then
+				equipped:Activate()
+			else
+				local tool = Flashlight.find(player:FindFirstChildOfClass("Backpack"))
+				local humanoid = if player.Character then player.Character:FindFirstChildOfClass("Humanoid") else nil
+				if tool and humanoid then humanoid:EquipTool(tool) end
+			end
 		end
 	end)
 	dialogClose.Activated:Connect(closeDialog)
