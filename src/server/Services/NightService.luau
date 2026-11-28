@@ -103,9 +103,12 @@ function NightService:BreakRule()
 	ruleBreaks += 1
 end
 
--- Сколько ночей открыто у игрока.
--- shortcut: пока у DataService нет GetUnlockedNight (V06, Codex) — в Studio открыты все ночи (для проверки), в игре только первая.
+-- Сколько ночей открыто у игрока. Studio: Workspace.StudioAllNights = true — открыты все (профиль в Studio «в памяти»,
+-- там открыта только ночь 1, а события ночей 2–5 надо проверять). Без DataService — в Studio все, в игре только первая.
 local function unlockedNight(player: Player): number
+	if RunService:IsStudio() and Workspace:GetAttribute("StudioAllNights") == true then
+		return #Nights
+	end
 	local data = registry.DataService
 	if data and data.GetUnlockedNight then
 		local ok, night = pcall(data.GetUnlockedNight, data, player)
