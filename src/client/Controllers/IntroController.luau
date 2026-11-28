@@ -103,7 +103,7 @@ local function play()
 	beamHolder.Transparency = 1
 	local beam = Instance.new("SpotLight")
 	beam.Face = Enum.NormalId.Front -- вперёд по ходу автобуса
-	beam.Range = 60
+	beam.Range = 70
 	beam.Angle = 70
 	beam.Brightness = 4
 	beam.Color = HEADLIGHT
@@ -278,24 +278,25 @@ local function play()
 	skip.Activated:Connect(finish)
 
 	local function sequence()
-		-- 1. Пролёт над ночным городом к депо: маршрутка выплывает из тумана.
+		-- 1. Пролёт над ночной дорогой к депо: в тумане сначала видны фары, потом выплывает маршрутка.
+		-- shortcut: у greybox-города у депо почти нет огней, поэтому летим низко на свет фар; с настоящей картой можно выше.
+		setLights(true)
 		camera.CameraType = Enum.CameraType.Scriptable
-		camera.CFrame = look(at(70, 75, -300), at(0, 0, -230))
+		camera.CFrame = look(at(25, 40, -170), at(0, 2, -60))
 		tween(fade, 1.2, { BackgroundTransparency = 1 })
-		move(look(at(30, 30, -120), at(0, 4, 0)), 5.5)
+		move(look(at(14, 14, -60), at(0, 5, -size.Z / 2)), 5.5)
 		hold(5.5, "flight")
 		-- 2. Низко к морде автобуса.
 		local front = at(0, size.Y * 0.4, -size.Z / 2)
 		move(look(at(9, 5, -size.Z / 2 - 22), front), 3)
 		hold(3, "approach")
-		-- 3. Фары моргают — и в кабине уже кто-то сидит.
+		-- 3. Фары дважды моргают — и в кабине уже кто-то сидит.
 		for _ = 1, 2 do
-			setLights(true)
-			task.wait(0.18)
 			setLights(false)
 			task.wait(0.18)
+			setLights(true)
+			task.wait(0.18)
 		end
-		setLights(true)
 		showDriver()
 		hold(0.8, "lights")
 		-- 4. К передней двери; двери с шипением открываются.
