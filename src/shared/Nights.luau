@@ -58,7 +58,7 @@ local Nights: { Night } = {
 		NameKey = "night.3.name", -- «Бабушка»
 		AnomalyChance = 0.36,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 3, Grandma = 2 },
-		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins" , "rule.keep_lights"}),
+		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.keep_lights" }),
 		Events = { ControllerAtStop = 4, LateRunner = true, Breakdown = true, Shadow = true },
 	},
 	{
