@@ -7,17 +7,20 @@ local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
 local Workspace = game:GetService("Workspace")
 local ClientSettings = require(script.Parent.Parent.ClientSettings)
+local findPassenger = require(script.Parent.Parent.FindPassenger)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local HorrorController = {}
+local atmosphere: { BlackoutFor: (any, number) -> () }? = nil
 
 local LOW_HEALTH = 50
 local HANDPRINT_TIME = 10
 local PHONE_TIME = 4
 local JUMPSCARE_TIME = 1.5
+local ATTACK_TIME = 1.5
 local ROAD_DISAPPEAR_DISTANCE = 15
 local MAX_ROAD_FIGURE_TIME = 30
 local DARK = Color3.fromRGB(8, 10, 13)
@@ -81,6 +84,7 @@ local function figure(parent: Instance, seated: boolean): Model
 	local body = part(model, DARK, Vector3.new(1.65, 2.4, 0.72))
 	body.CFrame = CFrame.new(0, 2.5 + lift, 0)
 	local head = part(model, DARK, Vector3.new(0.98, 1.25, 0.94))
+	head.Name = "Head"
 	head.Shape = Enum.PartType.Ball
 	head.CFrame = CFrame.new(0.12, 4.25 + lift, 0)
 	for _, side in { -1, 1 } do
@@ -94,6 +98,23 @@ local function figure(parent: Instance, seated: boolean): Model
 	model.WorldPivot = CFrame.identity
 	model.Parent = parent
 	return model
+end
+
+local function attackActor(passenger: Model?, stage: Instance): Model
+	local actor = if passenger then passenger:Clone() else nil
+	if not actor then return figure(stage, false) end
+	for _, child in actor:GetDescendants() do
+		if child:IsA("BasePart") then
+			child.Anchored = true
+			child.CanCollide, child.CanTouch, child.CanQuery, child.CastShadow = false, false, false, false
+			child.LocalTransparencyModifier = 0
+		elseif child:IsA("LuaSourceContainer") or child:IsA("Humanoid") or child:IsA("Constraint")
+			or child:IsA("JointInstance") or child:IsA("ProximityPrompt") or child:IsA("BillboardGui") or child:IsA("Sound")
+		then
+			child:Destroy()
+		end
+	end
+	return actor
 end
 
 local function handprints(parent: Instance): Part
@@ -244,6 +265,10 @@ local function restoreNeck(joint: NeckJoint, pose: NeckPose)
 	end
 end
 
+function HorrorController:Init(controllers: { [string]: any })
+	atmosphere = controllers.AtmosphereController
+end
+
 function HorrorController:Start()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
@@ -373,7 +398,50 @@ function HorrorController:Start()
 		if not bus or not root then return end
 		local function busPresent(): boolean return root:IsDescendantOf(Workspace) end
 
-		if name == "WindowKnock" and (data.Side == "Left" or data.Side == "Right") and type(data.Z) == "number" then
+		if name == "AnomalyAttack" and type(data.PassengerId) == "string" and type(data.UserId) == "number" then
+			local target = Players:GetPlayerByUserId(data.UserId)
+			local cabin = atmosphere
+			if cabin then cabin:BlackoutFor(ATTACK_TIME) end
+			local passenger = findPassenger(bus:FindFirstChild("Passengers"), data.PassengerId)
+			local actor = attackActor(passenger, stage)
+			actor.Name = "AnomalyAttackPassenger"
+			local head = actor:FindFirstChild("Head")
+			local offset = if head and head:IsA("BasePart") then actor:GetPivot():PointToObjectSpace(head.Position) else Vector3.zero
+
+			local function poseActor(): boolean
+				local character = if target then target.Character else nil
+				local anchor = if character then character:FindFirstChild("Head") else nil
+				if not anchor or not anchor:IsA("BasePart") then return false end
+				local camera = Workspace.CurrentCamera
+				local view = if target == Players.LocalPlayer and camera then camera.CFrame else anchor.CFrame
+				local forward = view.LookVector
+				local flat = Vector3.new(forward.X, 0, forward.Z)
+				if flat.Magnitude < 0.05 then flat = root.CFrame.LookVector end
+				local near = anchor.Position + flat.Unit * 2.8
+				actor:PivotTo(CFrame.lookAlong(near, -flat) * CFrame.new(-offset))
+				return true
+			end
+
+			if not poseActor() then
+				actor:Destroy()
+				local cue = sound(Config.SOUNDS.Jumpscare, root, 0.58, false)
+				if cue then
+					cue:Play()
+					task.delay(ATTACK_TIME, function() cue:Destroy() end)
+				end
+				return
+			end
+			actor.Parent = stage
+			playAt(Config.SOUNDS.Jumpscare, if head and head:IsA("BasePart") then head else root, 0.66)
+			if target == Players.LocalPlayer then shake(0.35, 0.7) end
+			keep(name, ATTACK_TIME, function()
+				return busPresent() and poseActor()
+			end, function() actor:Destroy() end)
+			local attack = effects[name]
+			task.delay(ATTACK_TIME, function()
+				if effects[name] == attack then clear(name) end
+			end)
+		elseif name == "WindowKnock" and (data.Side == "Left" or data.Side == "Right") and type(data.Z) == "number" then
 			local side = if data.Side == "Left" then -1 else 1
 			local box, size = bus:GetBoundingBox()
 			local localCenter = root.CFrame:PointToObjectSpace(box.Position)

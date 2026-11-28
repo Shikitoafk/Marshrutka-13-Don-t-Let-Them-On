@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local findPassenger = require(script.Parent.Parent.FindPassenger)
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -17,15 +18,6 @@ local function getBus(): Model?
 	local map = Workspace:FindFirstChild("Map")
 	local bus = if map then map:FindFirstChild("Bus") else nil
 	return if bus and bus:IsA("Model") then bus else nil
-end
-
-local function findPassenger(folder: Instance, id: string): Model?
-	for _, model in folder:GetChildren() do
-		if model:IsA("Model") and model:GetAttribute("PassengerId") == id then
-			return model
-		end
-	end
-	return nil
 end
 
 local function hand(model: Model): BasePart?
