@@ -217,6 +217,31 @@ local function rearSeat(bus: Model, root: BasePart): BasePart?
 	return rear
 end
 
+type NeckPivot = Motor6D | Attachment
+
+local function getNeckPivot(model: Instance): (NeckPivot?, BasePart?)
+	local neck = model:FindFirstChild("Neck", true)
+	if neck and neck:IsA("Motor6D") and neck.Part1 then
+		return neck, neck.Part0
+	end
+	if neck and neck:IsA("AnimationConstraint") then
+		local attachment = neck.Attachment0
+		local torso = if attachment then attachment.Parent else nil
+		if torso and torso:IsA("BasePart") then
+			return attachment, torso
+		end
+	end
+	return nil, nil
+end
+
+local function setNeckPose(pivot: NeckPivot, pose: CFrame)
+	if pivot:IsA("Motor6D") then
+		pivot.C0 = pose
+	else
+		pivot.CFrame = pose
+	end
+end
+
 function HorrorController:Start()
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local screen = Instance.new("ScreenGui")
@@ -422,33 +447,35 @@ function HorrorController:Start()
 			local folder = bus:FindFirstChild("Passengers")
 			if not folder then return end
 			clear(name)
-			local necks: { [Motor6D]: CFrame } = {}
+			local necks: { [NeckPivot]: CFrame } = {}
 			keep(name, math.clamp(data.Duration, 0, 10), function()
 				local camera = Workspace.CurrentCamera
 				if not camera or not busPresent() then return false end
-				for joint, original in necks do
-					if not joint:IsDescendantOf(folder) then
-						joint.C0 = original
-						necks[joint] = nil
+				for pivot, original in necks do
+					if not pivot:IsDescendantOf(folder) then
+						setNeckPose(pivot, original)
+						necks[pivot] = nil
 					end
 				end
 				for _, model in folder:GetChildren() do
-					local neck = model:FindFirstChild("Neck", true)
-					if neck and neck:IsA("Motor6D") and neck.Part0 and neck.Part1 then
-						local original = necks[neck] or neck.C0
-						necks[neck] = original
-						local jointPose = neck.Part0.CFrame * original
+					local pivot, torso = getNeckPivot(model)
+					if pivot and torso then
+						local original = necks[pivot] or (if pivot:IsA("Motor6D") then pivot.C0 else pivot.CFrame)
+						necks[pivot] = original
+						local jointPose = torso.CFrame * original
 						local offset = jointPose:PointToObjectSpace(camera.CFrame.Position)
 						if offset.Magnitude > 0.1 then
 							local yaw = math.atan2(-offset.X, -offset.Z)
 							local pitch = math.atan2(offset.Y, Vector2.new(offset.X, offset.Z).Magnitude)
-							neck.C0 = original * CFrame.Angles(math.clamp(pitch, -0.4, 0.4), yaw, 0)
+							setNeckPose(pivot, original * CFrame.Angles(math.clamp(pitch, -0.4, 0.4), yaw, 0))
 						end
 					end
 				end
 				return true
 			end, function()
-				for neck, original in necks do neck.C0 = original end
+				for pivot, original in necks do
+					setNeckPose(pivot, original)
+				end
 			end)
 		end
 	end
