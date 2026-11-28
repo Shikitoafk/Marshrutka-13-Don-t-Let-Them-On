@@ -259,6 +259,7 @@ ServerStorage
   `PlayerTaken(reason="flashlight_standing")`. `StopRequest` — пассажир с `AsksToStop` просит остановить (Notify
   `notify.stop_request`); если водитель остановился вне зоны остановки, пока просьба активна → урон `STOP_REQUEST_DAMAGE`
   (на автопилоте не бывает).
+- B13, ключ Notify: `notify.stop_skipped` {stop} — водитель проехал остановку, не открыв двери.
 - V12, ключи Notify: `notify.late_runner_missed` {penalty}, `notify.breakdown`, `notify.breakdown_fixed`, `notify.breakdown_taken` {player}.
   Опоздавший — обычная серверная модель пассажира (те же признаки, правда только на сервере). Пока он бежит, автопилот
   держит двери открытыми до `LATE_RUNNER_RUN_TIME + 1` с или до закрытия кондуктором. Поломка: `ProximityPrompt` «Завести»
