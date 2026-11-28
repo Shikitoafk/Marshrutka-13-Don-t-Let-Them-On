@@ -5,6 +5,7 @@ local DataStoreService = game:GetService("DataStoreService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
@@ -44,7 +45,8 @@ type Session = {
 type Transform = (any, DataStoreKeyInfo?) -> (any, { number }?, { [string]: any }?)
 
 local DataService = {}
-local store = DataStoreService:GetDataStore(Config.DATASTORE_NAME)
+local store: GlobalDataStore? = nil
+local memoryOnly = false
 local currencyChanged = Remotes.Event("CurrencyChanged")
 local notify = Remotes.Event("Notify")
 local sessions: { [Player]: Session } = {}
@@ -115,13 +117,25 @@ end
 local function updateWithRetry(key: string, transform: Transform, expectedOwner: string?): (any, DataStoreKeyInfo?, boolean)
 	local reason: any = "профиль занят или повреждён"
 	for attempt = 1, MAX_ATTEMPTS do
+		if memoryOnly then
+			return nil, nil, false
+		end
 		local ok, result, keyInfo = pcall(function()
-			return store:UpdateAsync(key, transform)
+			local currentStore = store or DataStoreService:GetDataStore(Config.DATASTORE_NAME)
+			store = currentStore
+			return currentStore:UpdateAsync(key, transform)
 		end)
 		if ok and (not expectedOwner or (result ~= nil and leaseExpiry(keyInfo, expectedOwner))) then
 			return result, keyInfo, true
 		end
 		if not ok then
+			if RunService:IsStudio() and string.find(string.lower(tostring(result)), "you must publish this place", 1, true) then
+				if not memoryOnly then
+					memoryOnly = true
+					warn("[DataService] Плейс не опубликован. Профили доступны на время теста и не сохраняются.")
+				end
+				return nil, nil, false
+			end
 			reason = result
 		end
 		if attempt < MAX_ATTEMPTS then
@@ -168,10 +182,20 @@ local function publishTenge(player: Player, tenge: number)
 	currencyChanged:FireClient(player, tenge)
 end
 
-local function notifyUnavailable(session: Session)
-	if not session.closing and session.player.Parent == Players then
+local function retryLoad(session: Session, load: (Session) -> ())
+	if session.closing or shuttingDown or session.player.Parent ~= Players then
+		return
+	end
+	if not session.recovering then
+		session.recovering = true
 		notify:FireClient(session.player, "notify.balance_unavailable", "Warn")
 	end
+	task.delay(LOAD_RETRY_INTERVAL, function()
+		if not shuttingDown and not session.closing and not session.loading and sessions[session.player] == session and session.player.Parent == Players then
+			session.loading = true
+			load(session)
+		end
+	end)
 end
 
 local function loadSession(session: Session)
@@ -190,11 +214,11 @@ local function loadSession(session: Session)
 	end, session.id)
 
 	local expiresAt = leaseExpiry(info, session.id)
-	if raw and expiresAt then
+	if (raw and expiresAt) or memoryOnly then
 		local profile = readProfile(raw)
 		session.profile = profile
-		session.tutorialOffered = raw.TutorialOffered == true
-		session.expiresAt = expiresAt
+		session.tutorialOffered = session.tutorialOffered or (raw ~= nil and raw.TutorialOffered == true)
+		session.expiresAt = expiresAt or math.huge
 		if not session.closing and session.player.Parent == Players then
 			session.player:SetAttribute("ShowTutorial", not session.tutorialOffered)
 			session.player:SetAttribute("UnlockedNight", profile.UnlockedNight)
@@ -205,17 +229,8 @@ local function loadSession(session: Session)
 			end
 		end
 		session.recovering = false
-	elseif not session.closing and not shuttingDown and session.player.Parent == Players then
-		if not session.recovering then
-			notifyUnavailable(session)
-			session.recovering = true
-		end
-		task.delay(LOAD_RETRY_INTERVAL, function()
-			if not shuttingDown and not session.closing and sessions[session.player] == session and session.player.Parent == Players then
-				session.loading = true
-				loadSession(session)
-			end
-		end)
+	else
+		retryLoad(session, loadSession)
 	end
 	session.loading = false
 	session.changed:Fire()
@@ -249,7 +264,7 @@ end
 
 local function saveSession(session: Session, final: boolean)
 	local profile = session.profile
-	if not profile or session.saving or (session.closing and not final) then
+	if not profile or memoryOnly or session.saving or (session.closing and not final) then
 		return
 	end
 	session.saving = true
@@ -277,14 +292,16 @@ local function saveSession(session: Session, final: boolean)
 		return record, keyUsers(currentInfo, session.player.UserId), metadata
 	end, nil)
 
-	if ok and not final then
+	if memoryOnly then
+		session.expiresAt = math.huge
+	elseif ok and not final then
 		local expiresAt = leaseExpiry(info, session.id)
 		if written and expiresAt then
 			session.expiresAt = expiresAt
 		else
 			session.profile = nil
 			session.expiresAt = 0
-			notifyUnavailable(session)
+			retryLoad(session, loadSession)
 		end
 	end
 	session.saving = false
