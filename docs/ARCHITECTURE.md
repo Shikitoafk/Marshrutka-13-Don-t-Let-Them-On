@@ -224,6 +224,7 @@ ServerStorage
 | `name` | `data` | Что видит/слышит игрок |
 |---|---|---|
 | `Breakdown` | `{Active: boolean, EndsAt: number}` | V12: мотор заглох — свет мигает/гаснет, стук; `Active=false` — завели или время вышло. Силуэты у окон и «отступают под фонарём» — клиентский эффект (CX) |
+| `Shadow` | `{Active: boolean, EndsAt: number}` | V13: блэкаут с Тенью (свет гаснет, аварийная красная подсветка у щитка); `Active=false` — свет вернули. Саму Тень видят все: это серверная модель |
 | `AnomalyAttack` | `{PassengerId: string, UserId: number}` | V11: пропущенная опасная аномалия в конце перегона — темнота 1.5 с, пассажир вплотную к игроку, Jumpscare, затем урон |
 | `WindowKnock` | `{Side: "Left" \| "Right", Z: number}` | стук + отпечатки ладоней на стекле в точке Z (координата вдоль автобуса), исчезают через 10 сек |
 | `RoofBang` | `{}` | тяжёлый удар по крыше, тряска камеры, лампы качнулись |
@@ -259,6 +260,13 @@ ServerStorage
   `PlayerTaken(reason="flashlight_standing")`. `StopRequest` — пассажир с `AsksToStop` просит остановить (Notify
   `notify.stop_request`); если водитель остановился вне зоны остановки, пока просьба активна → урон `STOP_REQUEST_DAMAGE`
   (на автопилоте не бывает).
+- V13 «Тень»: в блэкауте сервер ставит модель Тени в хвосте; пока темно, она идёт к ближайшему живому со скоростью
+  `SHADOW_SPEED`, но стоит, если на неё светит включённый фонарь (CC зовёт `FlashlightService:IsLit(position): boolean` —
+  метод добавляет CX). Дошла — `GhostService:Take(player, "shadow")`. Свет: `ProximityPrompt` «Рубильник» у щитка рядом
+  с водителем (HoldDuration `SHADOW_FUSE_HOLD`). Не совмещать с поломкой. Notify: `notify.shadow`, `notify.lights_restored`.
+- V13 «Фальшивая остановка»: на случайном перегоне — табличка без названия и силуэты (без B13-штрафа за проезд).
+  Автопилот стоит `FAKE_STOP_WAIT` с, двери не открывает. Открыли двери — входят `FAKE_STOP_ANOMALIES` опасных аномалий,
+  ошибка ночи, `notify.fake_stop_opened`. Новые правила (Strings, CX): `rule.keep_lights`, `rule.fake_stop`.
 - B13, ключ Notify: `notify.stop_skipped` {stop} — водитель проехал остановку, не открыв двери.
 - V12, ключи Notify: `notify.late_runner_missed` {penalty}, `notify.breakdown`, `notify.breakdown_fixed`, `notify.breakdown_taken` {player}.
   Опоздавший — обычная серверная модель пассажира (те же признаки, правда только на сервере). Пока он бежит, автопилот

@@ -20,6 +20,8 @@ export type Night = {
 		StopRequests: boolean?, -- пассажиры просят остановить между остановками
 		LateRunner: boolean?, -- V12: к дверям бежит опоздавший (обычный или аномалия)
 		Breakdown: boolean?, -- V12: раз за ночь мотор глохнет на случайном перегоне
+		Shadow: boolean?, -- V13: блэкауты с Тенью — она движется только в темноте, свет возвращают у щитка
+		FakeStop: boolean?, -- V13: раз за ночь на перегоне — остановка не из расписания
 	},
 }
 
@@ -56,24 +58,24 @@ local Nights: { Night } = {
 		NameKey = "night.3.name", -- «Бабушка»
 		AnomalyChance = 0.36,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 3, Grandma = 2 },
-		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins" }),
-		Events = { ControllerAtStop = 4, LateRunner = true, Breakdown = true },
+		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins" , "rule.keep_lights"}),
+		Events = { ControllerAtStop = 4, LateRunner = true, Breakdown = true, Shadow = true },
 	},
 	{
 		Index = 4,
 		NameKey = "night.4.name", -- «Не свети»
 		AnomalyChance = 0.38,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 2, Grandma = 2, Standing = 2, WrongHead = 2 },
-		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.standing", "rule.blackout_freeze" }),
-		Events = { ControllerAtStop = 5, BlackoutFreeze = true, LateRunner = true, Breakdown = true },
+		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.standing", "rule.blackout_freeze", "rule.fake_stop" }),
+		Events = { ControllerAtStop = 5, BlackoutFreeze = true, LateRunner = true, Breakdown = true, FakeStop = true },
 	},
 	{
 		Index = 5,
 		NameKey = "night.5.name", -- «Конечная»
 		AnomalyChance = 0.4,
 		Anomalies = { NoReflection = 2, WrongTicket = 2, GlowingEyes = 2, NoShadow = 2, Twin = 2, StrangeCoin = 2, Grandma = 2, Standing = 2, WrongHead = 2, StopRequest = 3 },
-		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.standing", "rule.blackout_freeze", "rule.no_unscheduled_stops", "rule.real_controller" }),
-		Events = { ControllerAtStop = 4, FakeControllerChance = 0.5, BlackoutFreeze = true, StopRequests = true, LateRunner = true, Breakdown = true },
+		Rules = rules({ "rule.controller", "rule.grandma", "rule.coins", "rule.standing", "rule.keep_lights", "rule.no_unscheduled_stops", "rule.fake_stop", "rule.real_controller" }),
+		Events = { ControllerAtStop = 4, FakeControllerChance = 0.5, StopRequests = true, LateRunner = true, Breakdown = true, Shadow = true, FakeStop = true },
 	},
 }
 
