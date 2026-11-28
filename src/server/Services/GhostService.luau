@@ -25,6 +25,7 @@ local GhostService = {}
 local registry: { [string]: any } = {}
 local ghosts: { [Player]: boolean } = {}
 local lastAction: { [Player]: { [string]: number } } = {}
+local reviving: { [Player]: boolean } = {} -- новый персонаж ещё грузится: второй запрос не принимаем
 local revivesLeft = 0 -- бесплатные возвращения команды на этот рейс
 local taken = 0 -- сколько раз за рейс кого-то забрали (RunEnded.Taken)
 local runId = 0
@@ -115,19 +116,26 @@ function GhostService:Take(player: Player, reason: string)
 	checkAllTaken()
 end
 
--- Вернуть призрака в салон: новый персонаж (RoundService сам посадит его в автобус). false — он не призрак или рейс кончился.
+-- Вернуть призрака в салон: новый персонаж (RoundService сам посадит его в автобус). Ждёт LoadCharacterAsync (B05):
+-- true — только если персонаж загрузился и рейс тот же; false — не призрак, уже возвращается, ошибка загрузки
+-- или рейс кончился, пока грузились (тогда ни бесплатная попытка, ни купленный заряд не тратятся).
 local function revive(player: Player): boolean
-	if not running or not ghosts[player] then
+	if not running or not ghosts[player] or reviving[player] then
 		return false
+	end
+	reviving[player] = true
+	local run = runId
+	local ok, err = pcall(player.LoadCharacterAsync, player)
+	reviving[player] = nil
+	if not ok then
+		warn(`[GhostService] Не удалось вернуть {player.Name}: {err}`)
+		return false
+	end
+	if run ~= runId or not ghosts[player] then
+		return false -- пока грузились, рейс кончился: FinishRun уже всех вернул
 	end
 	ghosts[player] = nil
 	lastAction[player] = nil
-	task.spawn(function()
-		local ok, err = pcall(player.LoadCharacterAsync, player)
-		if not ok then
-			warn(`[GhostService] Не удалось вернуть {player.Name}: {err}`)
-		end
-	end)
 	ghostState:FireClient(player, false, {})
 	for _, other in riders() do
 		Remotes.Event("PlayerRevived"):FireClient(other, player.UserId)
@@ -137,7 +145,8 @@ local function revive(player: Player): boolean
 	return true
 end
 
--- MonetizationService после оплаты PRODUCT_REVIVE (V07). true — вернули; false — выдавать нечего (не призрак / рейс кончился).
+-- MonetizationService после оплаты PRODUCT_REVIVE (V07). Ждёт загрузки персонажа. true — вернули; false — заряд не тратить
+-- (не призрак, уже возвращается, персонаж не загрузился или рейс кончился).
 function GhostService:Revive(player: Player): boolean
 	return revive(player)
 end
@@ -220,10 +229,18 @@ function GhostService:Start()
 	end)
 
 	Remotes.Event("ReviveRequest").OnServerEvent:Connect(function(player: Player)
-		if not allowRevive(player) or revivesLeft <= 0 or not revive(player) then
+		if not allowRevive(player) or revivesLeft <= 0 or not running or not ghosts[player] or reviving[player] then
 			return
 		end
+		-- Попытку занимаем сразу: пока грузится персонаж, второй призрак её не возьмёт. Не вернулся — отдаём обратно (B05).
 		revivesLeft -= 1
+		local run = runId
+		if not revive(player) then
+			if run == runId then
+				revivesLeft += 1
+			end
+			return
+		end
 		for other in ghosts do
 			ghostState:FireClient(other, true, stateData()) -- бесплатных стало меньше
 		end
