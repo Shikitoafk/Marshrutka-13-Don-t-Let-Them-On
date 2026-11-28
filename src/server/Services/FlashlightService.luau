@@ -7,8 +7,8 @@ local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("Config"))
 local Cosmetics = require(Shared:WaitForChild("Cosmetics"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
 local RateLimit = require(script.Parent.Parent.RateLimit)
-require(Shared:WaitForChild("Remotes"))
 
 local AIM_RATE = 12
 local SYNC_INTERVAL = 0.1
@@ -150,24 +150,17 @@ function FlashlightService:Start()
 	end
 
 	-- Движение камеры передаётся отдельно от штатного Tool.Activated.
-	local remotes = ReplicatedStorage:WaitForChild("Remotes")
-	local function connectAim(child: Instance)
-		if child.Name ~= "FlashlightAim" or not child:IsA("RemoteEvent") then return end
-		local allowAim = RateLimit.new(AIM_RATE)
-		child.OnServerEvent:Connect(function(player: Player, direction: unknown)
-			if not allowAim(player) or typeof(direction) ~= "Vector3" then return end
-			local length = direction.Magnitude
-			-- Сравнение диапазона отсекает также NaN и бесконечность.
-			if not (length >= 0.99 and length <= 1.01) then return end
-			local lamp = lamps[player]
-			if not lamp or not lamp.light.Enabled or lamp.tool.Parent ~= player.Character or not canUse(player) then return end
-			local pose = CFrame.lookAlong(lamp.pivot.WorldPosition, direction)
-			lamp.pivot.CFrame = lamp.lens.CFrame:ToObjectSpace(pose)
-		end)
-	end
-	remotes.ChildAdded:Connect(connectAim)
-	local aim = remotes:FindFirstChild("FlashlightAim")
-	if aim then connectAim(aim) end
+	local allowAim = RateLimit.new(AIM_RATE)
+	Remotes.Event("FlashlightAim").OnServerEvent:Connect(function(player: Player, direction: unknown)
+		if not allowAim(player) or typeof(direction) ~= "Vector3" then return end
+		local length = direction.Magnitude
+		-- Сравнение диапазона отсекает также NaN и бесконечность.
+		if not (length >= 0.99 and length <= 1.01) then return end
+		local lamp = lamps[player]
+		if not lamp or not lamp.light.Enabled or lamp.tool.Parent ~= player.Character or not canUse(player) then return end
+		local pose = CFrame.lookAlong(lamp.pivot.WorldPosition, direction)
+		lamp.pivot.CFrame = lamp.lens.CFrame:ToObjectSpace(pose)
+	end)
 
 	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
 		if index == 1 and phase == "Approaching" then

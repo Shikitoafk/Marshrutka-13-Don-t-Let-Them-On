@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ClientSettings = require(script.Parent.Parent.Parent.ClientSettings)
+local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local Flashlight = {}
 
@@ -111,7 +112,7 @@ function Flashlight.new(previewMode: boolean)
 	local beamRange = BEAM_RANGE
 	local coneEdge = math.cos(math.rad(BEAM_ANGLE / 2))
 	local nextAimAt = 0
-	local remotes = if previewMode then nil else ReplicatedStorage:WaitForChild("Remotes")
+	local aim = if previewMode then nil else Remotes.Event("FlashlightAim")
 
 	local function clearUnused()
 		for part, original in originalTransparency do
@@ -163,12 +164,9 @@ function Flashlight.new(previewMode: boolean)
 		if pivot and pivot.Parent and pivot.Parent:IsA("BasePart") then
 			pivot.CFrame = pivot.Parent.CFrame:ToObjectSpace(pose)
 			local now = os.clock()
-			if remotes and now >= nextAimAt then
+			if aim and now >= nextAimAt then
 				nextAimAt = now + AIM_INTERVAL
-				local aim = remotes:FindFirstChild("FlashlightAim")
-				if aim and aim:IsA("RemoteEvent") then
-					aim:FireServer(direction)
-				end
+				aim:FireServer(direction)
 			end
 		end
 	end
