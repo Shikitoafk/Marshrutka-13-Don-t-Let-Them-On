@@ -23,6 +23,12 @@ local STRANGE_COINS = { "coin.kopeck_1961", "coin.blank" } -- так плати�
 local SCARF = Color3.fromRGB(150, 45, 55) -- платок бабушки
 local BAG = Color3.fromRGB(105, 80, 50) -- котомка
 local LAUGH_EVERY_MIN, LAUGH_EVERY_MAX = 12, 25 -- сек между «тихими смешками» бабушки
+-- V11, реплики: ключи Strings line.normal.1..NORMAL_LINES и line.anomaly.1..ANOMALY_LINES (тексты — CX).
+local NORMAL_LINES, ANOMALY_LINES = 20, 15
+-- shortcut: шансы реплик и темнота перед уроном не в Config (ключей нет) — предложены в PR, перенести в Config.
+local SPEAK_STRANGE_ANOMALY = 0.5 -- опасная аномалия говорит «не то»
+local SPEAK_STRANGE_NORMAL = 0.1 -- обычный тоже иногда говорит странное
+local ATTACK_DARK_TIME = 1.5 -- сек сцены AnomalyAttack (темнота) до урона
 
 local byId: { [string]: AnomalyType } = {}
 for _, kind in AnomalyTypes do
@@ -273,9 +279,19 @@ function AnomalyService:CountAboard(): number
 	return count
 end
 
--- PassengerService зовёт при посадке. true — аномалия (сама не выйдет).
+-- V11: пассажир что-то говорит (посадка, проверка билета) — пузырём у всех в рейсе (PassengerSpeak, текст — CX).
+-- Опасная аномалия в половине случаев говорит «не то», обычный иногда тоже: подсказка, а не доказательство.
+local function speak(id: string)
+	local kind = truth[id]
+	local strange = math.random() < (if kind and dangerous(kind) then SPEAK_STRANGE_ANOMALY else SPEAK_STRANGE_NORMAL)
+	local key = if strange then `line.anomaly.{math.random(ANOMALY_LINES)}` else `line.normal.{math.random(NORMAL_LINES)}`
+	for _, player in riders() do
+		Remotes.Event("PassengerSpeak"):FireClient(player, id, key)
+	end
+end
+
 -- forced — Id аномалии особого пассажира (фальшивый контролёр, V03): без шанса, лимита и платы за проезд.
-function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): boolean
+local function boardPassenger(id: string, model: Model, forced: string?): boolean
 	tickets[id] = ticket(false)
 	if forced then
 		local kind = byId[forced]
@@ -337,6 +353,16 @@ function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): bo
 	end
 	log(`сел пассажир-аномалия: {kind.Name}`)
 	return true
+end
+
+-- PassengerService зовёт при посадке. true — аномалия (сама не выйдет). Севший заодно что-то говорит (V11),
+-- особый пассажир (контролёр) — нет: у него свои уведомления.
+function AnomalyService:OnBoarded(id: string, model: Model, forced: string?): boolean
+	local isAnomaly = boardPassenger(id, model, forced)
+	if not forced then
+		speak(id)
+	end
+	return isAnomaly
 end
 
 -- RoundService зовёт в конце рейса (победа или поражение): итоги каждому, звёзды ночи, бонус, статистика.
@@ -453,6 +479,30 @@ function AnomalyService:Start()
 	end
 	damageNow = damage
 
+	-- V11: пропущенная аномалия — сцена, а не полоска: у всех в рейсе темнота, она вплотную к случайному живому
+	-- (это рисует HorrorController по ScareEvent AnomalyAttack), и только потом урон, как раньше.
+	local scareEvent = Remotes.Event("ScareEvent")
+	local function attack(id: string)
+		local ghosts = registry.GhostService
+		local living: { Player } = {}
+		for _, player in riders() do
+			if not (ghosts and ghosts:IsGhost(player)) then
+				table.insert(living, player)
+			end
+		end
+		if #living > 0 then
+			local victim = living[math.random(#living)]
+			for _, player in riders() do
+				scareEvent:FireClient(player, "AnomalyAttack", { PassengerId = id, UserId = victim.UserId })
+			end
+			log(`пропущенная аномалия нападает на {victim.Name}`)
+			task.wait(ATTACK_DARK_TIME)
+		end
+		if runActive and truth[id] then -- пока было темно, рейс мог кончиться
+			damage(Config.ANOMALY_DAMAGE)
+		end
+	end
+
 	route.StopChanged:Connect(function(index: number, _name: string, phase: string)
 		if phase == "Approaching" and index == 1 then
 			resetRun() -- новый рейс
@@ -465,11 +515,19 @@ function AnomalyService:Start()
 		end
 		if phase == "Departed" then
 			local aboard = passengers:GetOnboard()
+			local attackers: { string } = {}
 			for id, kind in truth do
 				-- севшая на этой же остановке ещё не бьёт: у кондукторов должен быть целый перегон
 				if aboard[id] and dangerous(kind) and (boardedAt[id] or 0) < index then
-					damage(Config.ANOMALY_DAMAGE)
+					table.insert(attackers, id)
 				end
+			end
+			if #attackers > 0 then
+				task.spawn(function() -- по одной: каждая пропущенная — своя сцена
+					for _, id in attackers do
+						attack(id)
+					end
+				end)
 			end
 		end
 	end)
@@ -508,6 +566,9 @@ function AnomalyService:Start()
 		local passengerId = id :: string
 		local data: { [string]: string } = if tool == "Ticket" then tickets[passengerId] or ticket(false) else {}
 		inspectResult:FireClient(player, passengerId, tool, data)
+		if tool == "Ticket" and passengers:GetModel(passengerId) then
+			speak(passengerId) -- V11: показывая билет, пассажир что-то говорит
+		end
 		-- Правило ночи 4: на стоящего спиной не светить. Посветил — забирают (GhostService, V04) и правило нарушено.
 		local kind = truth[passengerId]
 		if tool == "Flashlight" and kind and kind.Id == "Standing" then
