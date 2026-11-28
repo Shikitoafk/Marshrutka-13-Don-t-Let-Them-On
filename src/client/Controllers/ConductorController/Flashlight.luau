@@ -52,7 +52,7 @@ function Flashlight.find(container: Instance?): Tool?
 	return nil
 end
 
-local function getLamp(tool: Tool?): (Attachment?, SpotLight?)
+function Flashlight.getLamp(tool: Tool?): (Attachment?, SpotLight?)
 	local lens = if tool then tool:FindFirstChild("Lens") else nil
 	local pivot = if lens then lens:FindFirstChild("Aim") else nil
 	local lamp = if pivot then pivot:FindFirstChild("Lamp") else nil
@@ -63,7 +63,7 @@ local function getLamp(tool: Tool?): (Attachment?, SpotLight?)
 end
 
 function Flashlight.isOn(tool: Tool?): boolean
-	local _, light = getLamp(tool)
+	local _, light = Flashlight.getLamp(tool)
 	return light ~= nil and light.Enabled
 end
 
@@ -133,7 +133,7 @@ function Flashlight.new(previewMode: boolean)
 
 	local function updateBeam(character: Model?)
 		local camera = Workspace.CurrentCamera
-		local pivot, lamp = getLamp(Flashlight.find(character))
+		local pivot, lamp = Flashlight.getLamp(Flashlight.find(character))
 		local head = if previewMode and character then character:FindFirstChild("Head") else nil
 		local origin = if pivot and lamp and lamp.Enabled then pivot.WorldPosition
 			elseif head and head:IsA("BasePart") then head.Position else nil

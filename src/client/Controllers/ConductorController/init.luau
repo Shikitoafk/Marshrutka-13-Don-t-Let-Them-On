@@ -186,7 +186,9 @@ function ConductorController:Start()
 	toolbar.Parent = screen
 	local mirrorButton = button(toolbar, "OpenMirror", "", UDim2.fromScale(0, 0), UDim2.fromScale(0.46, 1))
 	local lightButton = button(toolbar, "Flashlight", "", UDim2.fromScale(0.54, 0), UDim2.fromScale(0.46, 1))
-	for _, control in { mirrorButton, lightButton } do
+	local doorButton = button(toolbar, "ConductorDoors", Strings.get("driver.doors"), UDim2.fromScale(0.54, -1.13), UDim2.fromScale(0.46, 1))
+	doorButton.Visible = false
+	for _, control in { mirrorButton, lightButton, doorButton } do
 		local corner = control:FindFirstChildOfClass("UICorner")
 		if corner then
 			corner.CornerRadius = UDim.new(0.5, 0)
@@ -255,6 +257,7 @@ function ConductorController:Start()
 	local isGhost = false
 	local battery = Config.FLASHLIGHT_BATTERY
 	local lightOn = false
+	local busStopped, doorsOpen = false, false
 	local tickConnection: RBXScriptConnection? = nil
 	local targets: { [Model]: Target } = {}
 	local seenByFlashlight: { [Model]: boolean } = {}
@@ -264,6 +267,7 @@ function ConductorController:Start()
 	local selectedEject: Target? = nil
 	local requestInspect: (string, Tool) -> ()
 	local requestEject: (string) -> ()
+	local requestDoors: ((boolean) -> ())? = nil
 
 	local function currentBus(): Model?
 		if not previewMode then
@@ -283,6 +287,27 @@ function ConductorController:Start()
 			and target.model.Parent == folder
 			and target.part:IsDescendantOf(target.model)
 			and target.model:GetAttribute("PassengerId") == target.id
+	end
+
+	local function updateDoorButton(bus: Model?)
+		local front = if bus then bus:FindFirstChild("DoorFront") else nil
+		local character = player.Character
+		local root = getRoot(character)
+		local humanoid = if character then character:FindFirstChildOfClass("Humanoid") else nil
+		if not screen.Enabled or not busStopped or not bus or not root or not front or not front:IsA("PVInstance")
+			or not humanoid or humanoid.Health <= 0
+		then
+			doorButton.Visible = false
+			return
+		end
+		local driverId = bus:GetAttribute("DriverUserId")
+		local driverSeat = bus:FindFirstChild("DriverSeat")
+		local autopilot = if type(driverId) == "number" then driverId == 0
+			else driverSeat ~= nil and driverSeat:FindFirstChild("SeatWeld") == nil
+		doorButton.Visible = autopilot and (root.Position - front:GetPivot().Position).Magnitude <= Config.INSPECT_RANGE
+			and not mirrorShade.Visible and not dialog.Visible
+		doorButton.BackgroundColor3 = if doorsOpen then AMBER else BUTTON
+		doorButton.TextColor3 = if doorsOpen then PANEL else TEXT
 	end
 
 	local function canReach(target: Target): boolean
@@ -462,6 +487,7 @@ function ConductorController:Start()
 	local function refreshCabin()
 		local bus = currentBus()
 		local models = refreshTargets(bus)
+		updateDoorButton(bus)
 		if not previewMode then
 			local tool = Flashlight.find(player.Character)
 			local held = tool or Flashlight.find(player:FindFirstChildOfClass("Backpack"))
@@ -527,6 +553,7 @@ function ConductorController:Start()
 			closeDialog()
 			setMirror(false)
 			setLight(false)
+			doorButton.Visible = false
 			for _, target in targets do
 				removeTarget(target)
 			end
@@ -542,6 +569,7 @@ function ConductorController:Start()
 			role = nil
 			isGhost = false
 			battery = Config.FLASHLIGHT_BATTERY
+			busStopped, doorsOpen = false, false
 			nextInspectAt = 0
 			updateLightButton()
 		end
@@ -558,6 +586,11 @@ function ConductorController:Start()
 	end)
 	mirrorClose.Activated:Connect(function()
 		setMirror(false)
+	end)
+	doorButton.Activated:Connect(function()
+		updateDoorButton(currentBus())
+		local request = requestDoors
+		if doorButton.Visible and request then request(not doorsOpen) end
 	end)
 	lightButton.Activated:Connect(function()
 		if screen.Enabled and not dialog.Visible and not mirrorShade.Visible then
@@ -618,12 +651,20 @@ function ConductorController:Start()
 
 	local inspectRemote = Remotes.Event("InspectPassenger")
 	local ejectRemote = Remotes.Event("EjectPassenger")
+	local doorsRemote = Remotes.Event("DoorsRequest")
 	requestInspect = function(id, tool)
 		inspectRemote:FireServer(id, tool)
 	end
 	requestEject = function(id)
 		ejectRemote:FireServer(id)
 	end
+	requestDoors = function(open)
+		doorsRemote:FireServer(open)
+	end
+	Remotes.Event("BusState").OnClientEvent:Connect(function(speed: number, _health: number, open: boolean)
+		busStopped, doorsOpen = math.abs(speed) < 1, open
+		if screen.Enabled then updateDoorButton(currentBus()) end
+	end)
 	Remotes.Event("InspectResult").OnClientEvent:Connect(showTicket)
 	Remotes.Event("RoleAssigned").OnClientEvent:Connect(function(assignedRole: string)
 		role = assignedRole
