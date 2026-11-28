@@ -14,10 +14,16 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 
 local AtmosphereController = {}
 local blackoutFor: (number) -> () = function() end
+local setBreakdown: (boolean) -> () = function() end
 
 function AtmosphereController:BlackoutFor(duration: number)
 	blackoutFor(duration)
 end
+
+function AtmosphereController:SetBreakdown(active: boolean)
+	setBreakdown(active)
+end
+
 local stopChime: Sound? = nil
 
 local FLICKER_STEP = 0.25
@@ -105,8 +111,11 @@ function AtmosphereController:Start()
 	local roundState: string? = nil
 	local ended = false
 	local cabinDark = false
+	local cabinDim = false
 	local lightVersion = 0
 	local blackoutEndsAt = 0
+	local breakdownActive, breakdownDark = false, false
+	local breakdownVersion = 0
 	local originalLights: { [Light]: boolean } = {}
 	local currentBus: Model? = nil
 	local currentRoot: BasePart? = nil
@@ -162,23 +171,50 @@ function AtmosphereController:Start()
 				end
 			end
 		end
-		if cabinDark then
+		if cabinDark or breakdownDark then
 			syncLights()
 		end
 	end
 
-	local function applyLightState(dark: boolean, dimView: boolean)
-		cabinDark = dark
-		blackout.Enabled = dimView
-		if not dark then
+	local function applyLights()
+		blackout.Enabled = cabinDim or breakdownDark
+		if not cabinDark and not breakdownDark then
 			restoreLights()
 		end
 		syncBus()
 	end
 
+	local function applyLightState(dark: boolean, dimView: boolean)
+		cabinDark, cabinDim = dark, dimView
+		applyLights()
+	end
+
+	setBreakdown = function(active: boolean)
+		if active == breakdownActive then return end
+		breakdownActive, breakdownDark = active, active
+		breakdownVersion += 1
+		applyLights()
+		if not active then return end
+		local engine = cabinSounds.Engine
+		if engine then engine:Stop() end
+		if ClientSettings.get().ReducedEffects then return end
+		local version = breakdownVersion
+		task.delay(FLICKER_STEP, function()
+			if breakdownVersion ~= version or ClientSettings.get().ReducedEffects then return end
+			breakdownDark = false
+			applyLights()
+		end)
+		task.delay(FLICKER_STEP * 2, function()
+			if breakdownVersion ~= version then return end
+			breakdownDark = true
+			applyLights()
+		end)
+	end
+
 	local function clearEffects()
 		lightVersion += 1
 		blackoutEndsAt = 0
+		setBreakdown(false)
 		applyLightState(false, false)
 		for _, sound in cabinSounds do
 			sound:Stop()
@@ -215,7 +251,7 @@ function AtmosphereController:Start()
 			return
 		end
 		local engine = cabinSounds.Engine
-		if engine then
+		if engine and not breakdownActive then
 			local fraction = math.clamp(math.abs(speed) / Config.BUS_MAX_SPEED, 0, 1)
 			engine.PlaybackSpeed = 0.72 + 0.83 * fraction
 			engine.Volume = 0.28 + 0.23 * fraction
@@ -239,7 +275,7 @@ function AtmosphereController:Start()
 		elseif effect == "Whispers" then
 			replay(whispers)
 		elseif effect == "LightsFlicker" then
-			if blackout.Enabled or ClientSettings.get().ReducedEffects then
+			if cabinDim or breakdownActive or ClientSettings.get().ReducedEffects then
 				return
 			end
 			lightVersion += 1
@@ -260,7 +296,12 @@ function AtmosphereController:Start()
 	end
 
 	ClientSettings.Changed:Connect(function()
-		if ClientSettings.get().ReducedEffects and cabinDark and not blackout.Enabled then
+		if not ClientSettings.get().ReducedEffects then return end
+		if breakdownActive and not breakdownDark then
+			breakdownDark = true
+			applyLights()
+		end
+		if cabinDark and not cabinDim then
 			lightVersion += 1
 			applyLightState(false, false)
 		end
