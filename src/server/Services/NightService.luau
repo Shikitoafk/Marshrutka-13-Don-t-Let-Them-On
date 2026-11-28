@@ -42,7 +42,12 @@ end
 local attach = Outfit.attach
 
 -- Форма контролёра: одежда снята, тело в цвет формы, фуражка; у настоящего — золотой жетон на груди.
+-- Случайной шапки/сумки пассажира (папка Look, V11) у контролёра нет.
 local function uniform(model: Model, color: Color3, badge: boolean)
+	local look = model:FindFirstChild("Look")
+	if look then
+		look:Destroy()
+	end
 	for _, item in model:GetDescendants() do
 		if item:IsA("Clothing") or item:IsA("ShirtGraphic") or item:IsA("BodyColors") then
 			item:Destroy()
