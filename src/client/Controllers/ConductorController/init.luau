@@ -211,7 +211,6 @@ function ConductorController:Start()
 	viewport.Position = UDim2.fromScale(0.045, 0.18)
 	viewport.Size = UDim2.fromScale(0.91, 0.52)
 	viewport.BackgroundColor3 = Color3.fromRGB(9, 15, 24)
-	viewport.Ambient = Color3.fromRGB(163, 165, 165)
 	viewport.BorderSizePixel = 0
 	corners(viewport)
 	viewport.Parent = mirrorPanel

@@ -2,6 +2,27 @@
 
 local Mirror = {}
 
+local CABIN_AMBIENT = Color3.fromRGB(83, 84, 98)
+local FALLBACK_LIGHT = Color3.fromRGB(158, 136, 105)
+local CABIN_LIGHT_DIRECTION = Vector3.new(-0.25, -1, -0.5).Unit
+
+local function cabinLightColor(bus: Model): Color3
+	local fixtures = bus:FindFirstChild("InteriorLights")
+	if not fixtures then return FALLBACK_LIGHT end
+	local red, green, blue, count = 0, 0, 0, 0
+	for _, light in fixtures:GetDescendants() do
+		if light:IsA("Light") then
+			count += 1
+			local brightness = if light.Enabled then math.clamp(light.Brightness, 0, 1) else 0
+			local color = light.Color
+			red += color.R * brightness
+			green += color.G * brightness
+			blue += color.B * brightness
+		end
+	end
+	return if count > 0 then Color3.new(red / count, green / count, blue / count) else FALLBACK_LIGHT
+end
+
 local function clonePart(part: BasePart): BasePart?
 	local copy = part:Clone()
 	if not copy then
@@ -21,6 +42,8 @@ local function clonePart(part: BasePart): BasePart?
 end
 
 function Mirror.new(viewport: ViewportFrame)
+	viewport.Ambient = CABIN_AMBIENT
+	viewport.LightColor = FALLBACK_LIGHT
 	local camera = Instance.new("Camera")
 	camera.FieldOfView = 70
 	camera.Parent = viewport
@@ -43,6 +66,8 @@ function Mirror.new(viewport: ViewportFrame)
 		end
 
 		camera.CFrame = marker.CFrame
+		viewport.LightDirection = marker.CFrame:VectorToWorldSpace(CABIN_LIGHT_DIRECTION)
+		viewport.LightColor = cabinLightColor(bus)
 		local seen: { [BasePart]: boolean } = {}
 		local function copyVisibleChildren(parent: Instance)
 			for _, child in parent:GetChildren() do
